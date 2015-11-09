@@ -36,6 +36,13 @@ object LeaderAndIsr {
   val LeaderDuringDelete = -2
 }
 
+/**
+"controller_epoch": 表示kafka集群中的中央控制器选举次数,
+"leader": 表示该partition选举leader的brokerId,
+"version": 版本编号默认为1,
+"leader_epoch": 该partition leader选举次数,
+"isr": [同步副本组brokerId列表]
+ */
 case class LeaderAndIsr(var leader: Int, var leaderEpoch: Int, var isr: List[Int], var zkVersion: Int) {
   def this(leader: Int, isr: List[Int]) = this(leader, LeaderAndIsr.initialLeaderEpoch, isr, LeaderAndIsr.initialZKVersion)
 

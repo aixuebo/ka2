@@ -48,13 +48,13 @@ class ZookeeperLeaderElector(controllerContext: ControllerContext,
 
   def startup {
     inLock(controllerContext.controllerLock) {
-      //向zookeeper提交一个该节点的监听,当该节点数据有变化时,要通知
+      //向zookeeper提交一个/controller节点的监听,当该节点数据有变化时,要通知
       controllerContext.zkClient.subscribeDataChanges(electionPath, leaderChangeListener)
       elect
     }
   }
 
-  //读取该path下的内容,查看谁是leader,然后返回该leader的broker的id
+  //读取该/controller下的内容,查看谁是leader,然后返回该leader的broker的id
   private def getControllerID(): Int = {
     //读取该path下的内容,可能最后结果是null
     readDataMaybeNull(controllerContext.zkClient, electionPath)._1 match {
@@ -120,7 +120,7 @@ class ZookeeperLeaderElector(controllerContext: ControllerContext,
   /**
    * We do not have session expiration listen in the ZkElection, but assuming the caller who uses this module will
    * have its own session expiration listener and handler
-   * 监听path上的data数据的更改和删除事件
+   * 监听/controller上的data数据的更改和删除事件
    * 
    * 参数controllerInfoString:是json格式,解析的内容是哪个broker节点是kafka主节点,返回该主节点的broker的id
    */

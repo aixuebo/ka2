@@ -61,7 +61,7 @@ case object NotRunning extends BrokerStates { val state: Byte = 0 }//默认服�
 case object Starting extends BrokerStates { val state: Byte = 1 }//服务器正在开启中
 case object RecoveringFromUncleanShutdown extends BrokerStates { val state: Byte = 2 }
 case object RunningAsBroker extends BrokerStates { val state: Byte = 3 }//服务器正在运行中
-case object RunningAsController extends BrokerStates { val state: Byte = 4 }
+case object RunningAsController extends BrokerStates { val state: Byte = 4 }//该服务器运行中,并且该服务器也已经是controller服务器了
 case object PendingControlledShutdown extends BrokerStates { val state: Byte = 6 }
 case object BrokerShuttingDown extends BrokerStates { val state: Byte = 7 }
 

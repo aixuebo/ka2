@@ -118,6 +118,7 @@ controller_epoch节点的值是一个数字,kafka集群中第一个broker第一�
      ]            
 }
  */
+ //参见KafkaController中PartitionsReassignedListener事件
   val ReassignPartitionsPath = "/admin/reassign_partitions"
 /**
 /admin/delete_topics内容 
@@ -146,6 +147,13 @@ controller_epoch节点的值是一个数字,kafka集群中第一个broker第一�
      ]            
 }
  */
+    ///admin/preferred_replica_election节点添加监听KafkaController中PreferredReplicaElectionListener
+    /**
+     *存储内容 解析/admin/preferred_replica_election节点信息的内容,内容是一个map,格式{"partitions":[{key=value,topic=value},{key=value,topic=value}]},
+   * 总格式整理:
+   * partitions = List[Map[String, Any]]
+   * 其中key包含 topic,partition
+     */
   val PreferredReplicaLeaderElectionPath = "/admin/preferred_replica_election"
 
   //return /brokers/topics/${topic}
@@ -187,8 +195,9 @@ controller_epoch节点的值是一个数字,kafka集群中第一个broker第一�
   def getSortedBrokerList(zkClient: ZkClient): Seq[Int] =
     ZkUtils.getChildren(zkClient, BrokerIdsPath).map(_.toInt).sorted
 
-  //获取当前集群中合法的broker的对象集合.并且已经排序后返回
+  //获取/brokers/ids所有节点,并且过滤非有效的broker对象,获取当前集群中合法的broker的对象集合.并且已经排序后返回
   def getAllBrokersInCluster(zkClient: ZkClient): Seq[Broker] = {
+    //获取/brokers/ids所有节点
     val brokerIds = ZkUtils.getChildrenParentMayNotExist(zkClient, ZkUtils.BrokerIdsPath).sorted
     //将ID转换成int,
     //然后每一个ID---读取/brokers/ids/${brokerId}的内容.即该brokerId对应的host和part最后组装成Broker对象集合返回
@@ -652,6 +661,7 @@ controller_epoch节点的值是一个数字,kafka集群中第一个broker第一�
     cluster
   }
 
+  //参数是所有的topic-partition对象,返回值是每一个topic-partition对象对应的详细信息LeaderIsrAndControllerEpoch
   def getPartitionLeaderAndIsrForTopics(zkClient: ZkClient, topicAndPartitions: Set[TopicAndPartition])
   : mutable.Map[TopicAndPartition, LeaderIsrAndControllerEpoch] = {
     val ret = new mutable.HashMap[TopicAndPartition, LeaderIsrAndControllerEpoch]
@@ -739,6 +749,10 @@ controller_epoch节点的值是一个数字,kafka集群中第一个broker第一�
     }
   }
 
+  /**
+   * 1.获取/admin/reassign_partitions的内容
+   * 2.重新分配topic-partition,参数newReplicas是重新分配的brokerId集合
+   */
   def getPartitionsBeingReassigned(zkClient: ZkClient): Map[TopicAndPartition, ReassignedPartitionsContext] = {
     // read the partitions and their new replica list
     val jsonPartitionMapOpt = readDataMaybeNull(zkClient, ReassignPartitionsPath)._1
@@ -817,6 +831,7 @@ controller_epoch节点的值是一个数字,kafka集群中第一个broker第一�
     }
   }
 
+  //读取/admin/preferred_replica_election节点信息
   def getPartitionsUndergoingPreferredReplicaElection(zkClient: ZkClient): Set[TopicAndPartition] = {
     // read the partitions and their new replica list
     val jsonPartitionListOpt = readDataMaybeNull(zkClient, PreferredReplicaLeaderElectionPath)._1
@@ -897,7 +912,7 @@ val oneTwoThree = 1 :: twoThree // List(1, 2, 3)
     }
   }
 
-  //获取所有的topic集合
+  //获取所有的topic集合,/brokers/topics
   def getAllTopics(zkClient: ZkClient): Seq[String] = {
     val topics = ZkUtils.getChildrenParentMayNotExist(zkClient, BrokerTopicsPath)
     if(topics == null)

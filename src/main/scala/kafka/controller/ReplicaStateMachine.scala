@@ -364,7 +364,7 @@ class ReplicaStateMachine(controller: KafkaController) extends Logging {
         ". Instead it is in %s state".format(replicaState(partitionAndReplica)))
   }
 
-  //注册监听
+  //注册监听/brokers/ids
   private def registerBrokerChangeListener() = {
     zkClient.subscribeChildChanges(ZkUtils.BrokerIdsPath, brokerChangeListener)
   }

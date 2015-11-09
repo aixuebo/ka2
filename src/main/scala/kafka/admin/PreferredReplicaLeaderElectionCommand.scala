@@ -73,6 +73,12 @@ object PreferredReplicaLeaderElectionCommand extends Logging {
     }
   }
 
+  /**
+   * 解析/admin/preferred_replica_election节点信息的内容,内容是一个map,格式{"partitions":[{key=value,topic=value},{key=value,topic=value}]},
+   * 总格式整理:
+   * partitions = List[Map[String, Any]]
+   * 其中key包含 topic,partition
+   */
   def parsePreferredReplicaElectionData(jsonString: String): immutable.Set[TopicAndPartition] = {
     Json.parseFull(jsonString) match {
       case Some(m) =>

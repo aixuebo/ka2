@@ -54,6 +54,7 @@ class ControllerContext(val zkClient: ZkClient,
   
   val brokerShutdownLock: Object = new Object
   
+  
   var epoch: Int = KafkaController.InitialControllerEpoch - 1
   var epochZkVersion: Int = KafkaController.InitialControllerEpochZkVersion - 1
   val correlationId: AtomicInteger = new AtomicInteger(0)
@@ -64,7 +65,11 @@ class ControllerContext(val zkClient: ZkClient,
   //key是topic-partition对象,value是该partition的备份的ID集合
   var partitionReplicaAssignment: mutable.Map[TopicAndPartition, Seq[Int]] = mutable.Map.empty
   
-  //key是topic-partition value是该partition对应的leader节点等信息对象
+  /**
+   * 1.循环所有的topic-partition
+   * 2.获取每一个/brokers/topics/${topic}/partitions/${partitionId}/state路径下的内容,生成LeaderIsrAndControllerEpoch对象
+   * key是topic-partition value是该partition对应的leader节点等信息对象
+   */
   var partitionLeadershipInfo: mutable.Map[TopicAndPartition, LeaderIsrAndControllerEpoch] = mutable.Map.empty
   var partitionsBeingReassigned: mutable.Map[TopicAndPartition, ReassignedPartitionsContext] = new mutable.HashMap
   var partitionsUndergoingPreferredReplicaElection: mutable.Set[TopicAndPartition] = new mutable.HashSet
@@ -104,7 +109,7 @@ class ControllerContext(val zkClient: ZkClient,
   /**
    * 1.循环参数所有的节点集合
    * 2.筛选节点集合,如果节点存在备份数据,则保留
-   * 3.返回PartitionAndReplica集合,即  该对象记录一个topic-partition-在broker上有备份,即参数replica就是备份的brokerId
+   * 3.返回PartitionAndReplica集合,即  该对象记录一个topic-partition-在哪些broker上
    */
   def replicasOnBrokers(brokerIds: Set[Int]): Set[PartitionAndReplica] = {
     brokerIds.map { brokerId =>
@@ -329,37 +334,47 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
   }
 
   /**
+   * 当前broker被选举成新的controller时,调用该回调方法
    * This callback is invoked by the zookeeper leader elector on electing the current broker as the new controller.
    * It does the following things on the become-controller state change -
-   * 1. Register controller epoch changed listener
-   * 2. Increments the controller epoch
+   * 当前broker变成controller状态的时候,会执行以下逻辑
+   * 1. Register controller epoch changed listener 注册各种监听
+   * 2. Increments the controller epoch 增加第几次更换controller次数
    * 3. Initializes the controller's context object that holds cache objects for current topics, live brokers and
    *    leaders for all existing partitions.
-   * 4. Starts the controller's channel manager
-   * 5. Starts the replica state machine
-   * 6. Starts the partition state machine
+   * 4. Starts the controller's channel manager 开启该程序执行
+   * 5. Starts the replica state machine 开启该程序执行
+   * 6. Starts the partition state machine 开启该程序执行
    * If it encounters any unexpected exception/error while becoming controller, it resigns as the current controller.
+   * 如果遭遇到了任何不期望的异常或者错误,则重新分配conraoller
    * This ensures another controller election will be triggered and there will always be an actively serving controller
+   * 这个机制确保了其他controller 选举将会被触发,然后总是活跃
+   * 
+   * 当该机器broker变成leader时候执行该函数
    */
   def onControllerFailover() {
     if(isRunning) {
       info("Broker %d starting become controller state transition".format(config.brokerId))
-      //read controller epoch from zk
+      //read controller epoch from zk 初始化/controller_epoch节点,获取该节点存储的已经第几次更改controller
       readControllerEpochFromZookeeper()
-      // increment the controller epoch
+      // increment the controller epoch 设置/controller_epoch节点,使该节点存储的已经第几次更改controller累加1
       incrementControllerEpoch(zkClient)
       // before reading source of truth from zookeeper, register the listeners to get broker/topic callbacks
-      registerReassignedPartitionsListener()
-      registerPreferredReplicaElectionListener()
-      partitionStateMachine.registerListeners()
-      replicaStateMachine.registerListeners()
+      registerReassignedPartitionsListener()//为/admin/reassign_partitions节点注册事件PartitionsReassignedListener
+      registerPreferredReplicaElectionListener()///admin/preferred_replica_election节点添加监听PreferredReplicaElectionListener
+      partitionStateMachine.registerListeners()//添加/brokers/topics节点监听
+      replicaStateMachine.registerListeners()//注册监听/brokers/ids
+      
+      //初始化
       initializeControllerContext()
+      
+      //开启任务
       replicaStateMachine.startup()
       partitionStateMachine.startup()
       // register the partition change listeners for all existing topics on failover
       controllerContext.allTopics.foreach(topic => partitionStateMachine.registerPartitionChangeListener(topic))
-      info("Broker %d is ready to serve as the new controller with epoch %d".format(config.brokerId, epoch))
-      brokerState.newState(RunningAsController)
+      info("Broker %d is ready to serve as the new controller with epoch %d".format(config.brokerId, epoch))//打印说明该节点已经是controller了
+      brokerState.newState(RunningAsController)//设置该服务器运行中,并且该服务器也已经是controller服务器了
       maybeTriggerPartitionReassignment()
       maybeTriggerPreferredReplicaElection()
       /* send partition leadership info to all live brokers */
@@ -379,6 +394,7 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
   /**
    * This callback is invoked by the zookeeper leader elector when the current broker resigns as the controller. This is
    * required to clean up internal controller data structures
+   * 当该机器broker重新进行leader分配的时候执行该函数
    */
   def onControllerResignation() {
     // de-register listeners
@@ -414,6 +430,7 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
 
   /**
    * Returns true if this broker is the current controller.
+   * true表示该broker是当前的controller节点
    */
   def isActive(): Boolean = {
     inLock(controllerContext.controllerLock) {
@@ -717,18 +734,22 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
     controllerContext.controllerChannelManager.sendRequest(brokerId, request, callback)
   }
 
+  //设置/controller_epoch节点,使该节点存储的已经第几次更改controller累加1
   def incrementControllerEpoch(zkClient: ZkClient) = {
     try {
       var newControllerEpoch = controllerContext.epoch + 1
+            //更新/controller_epoch节点的值,是原来值+1
       val (updateSucceeded, newVersion) = ZkUtils.conditionalUpdatePersistentPathIfExists(zkClient,
         ZkUtils.ControllerEpochPath, newControllerEpoch.toString, controllerContext.epochZkVersion)
       if(!updateSucceeded)
-        throw new ControllerMovedException("Controller moved to another broker. Aborting controller startup procedure")
+        throw new ControllerMovedException("Controller moved to another broker. Aborting controller startup procedure") //更新失败抛异常
       else {
+        //更新之后重新设置新值和当前zookeeper的version信息
         controllerContext.epochZkVersion = newVersion
         controllerContext.epoch = newControllerEpoch
       }
     } catch {
+      //如果/controller_epoch节点不存在异常,因此说明是第一次初始化,因此要将其值设置为1即可
       case nne: ZkNoNodeException =>
         // if path doesn't exist, this is the first controller whose epoch should be 1
         // the following call can still fail if another controller gets elected between checking if the path exists and
@@ -737,7 +758,7 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
           zkClient.createPersistent(ZkUtils.ControllerEpochPath, KafkaController.InitialControllerEpoch.toString)
           controllerContext.epoch = KafkaController.InitialControllerEpoch
           controllerContext.epochZkVersion = KafkaController.InitialControllerEpochZkVersion
-        } catch {
+        } catch {//说明在设置的时候,有其他节点注册了,因此抛异常即可
           case e: ZkNodeExistsException => throw new ControllerMovedException("Controller moved to another broker. " +
             "Aborting controller startup procedure")
           case oe: Throwable => error("Error while incrementing controller epoch", oe)
@@ -752,17 +773,33 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
     zkClient.subscribeStateChanges(new SessionExpirationListener())
   }
 
+  /**
+   * 1.获取/brokers/ids所有节点,并且过滤非有效的broker对象,获取当前集群中合法的broker的对象集合.并且已经排序后返回
+   * 2.获取所有的topic集合,/brokers/topics
+   * 3./brokers/topics/${topic}的内容{partitions:{"1":[11,12,14],"2":[11,16,19]} } 含义是该topic中有两个partition,分别是1和2,每一个partition在哪些brokerId存储
+   *   返回值 Map[TopicAndPartition, Seq[Int]] key是topic-partition,value是该partition都在哪些节点有备份
+   * 4.为每一个topic-partition,映射LeaderIsrAndControllerEpoch对象,该对象可以获取该partition的leader等信息
+   */
   private def initializeControllerContext() {
     // update controller cache with delete topic information
-    controllerContext.liveBrokers = ZkUtils.getAllBrokersInCluster(zkClient).toSet
-    controllerContext.allTopics = ZkUtils.getAllTopics(zkClient).toSet
+    controllerContext.liveBrokers = ZkUtils.getAllBrokersInCluster(zkClient).toSet //获取/brokers/ids所有节点,并且过滤非有效的broker对象,获取当前集群中合法的broker的对象集合.并且已经排序后返回
+    controllerContext.allTopics = ZkUtils.getAllTopics(zkClient).toSet//获取所有的topic集合,/brokers/topics
+    /**
+   * 1.读取/brokers/topics/${topic}的内容{partitions:{"1":[11,12,14],"2":[11,16,19]} } 含义是该topic中有两个partition,分别是1和2,每一个partition在哪些brokerId存储
+   * 2.解析内容,返回映射关系
+   * 返回值 Map[TopicAndPartition, Seq[Int]] key是topic-partition,value是该partition都在哪些节点有备份
+     */
     controllerContext.partitionReplicaAssignment = ZkUtils.getReplicaAssignmentForTopics(zkClient, controllerContext.allTopics.toSeq)
     controllerContext.partitionLeadershipInfo = new mutable.HashMap[TopicAndPartition, LeaderIsrAndControllerEpoch]
     controllerContext.shuttingDownBrokerIds = mutable.Set.empty[Int]
     // update the leader and isr cache for all existing partitions from Zookeeper
+    /**
+     * 1.循环所有的topic-partition
+     * 2.获取每一个/brokers/topics/${topic}/partitions/${partitionId}/state路径下的内容,生成LeaderIsrAndControllerEpoch对象,该对象可以获取该partition的leader等信息
+     */
     updateLeaderAndIsrCache()
-    // start the channel manager
-    startChannelManager()
+    // start the channel manager 
+    startChannelManager() //创建ControllerChannelManager对象,并且执行startUp方法
     initializePreferredReplicaElection()
     initializePartitionReassignment()
     initializeTopicDeletion()
@@ -771,8 +808,9 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
     info("Current list of topics in the cluster: %s".format(controllerContext.allTopics))
   }
 
+  //读取/admin/preferred_replica_election节点信息存储的topic-partition集合
   private def initializePreferredReplicaElection() {
-    // initialize preferred replica election state
+    // initialize preferred replica election state 读取/admin/preferred_replica_election节点信息存储的topic-partition集合,即Set[TopicAndPartition]
     val partitionsUndergoingPreferredReplicaElection = ZkUtils.getPartitionsUndergoingPreferredReplicaElection(zkClient)
     // check if they are already completed or topic was deleted
     val partitionsThatCompletedPreferredReplicaElection = partitionsUndergoingPreferredReplicaElection.filter { partition =>
@@ -791,6 +829,11 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
 
   private def initializePartitionReassignment() {
     // read the partitions being reassigned from zookeeper path /admin/reassign_partitions
+    /**
+     * 1.获取/admin/reassign_partitions的内容
+     * 2.重新分配topic-partition,参数newReplicas是重新分配的brokerId集合,
+     *  返回Map[TopicAndPartition, ReassignedPartitionsContext]
+     */
     val partitionsBeingReassigned = ZkUtils.getPartitionsBeingReassigned(zkClient)
     // check if they are already completed or topic was deleted
     val reassignedPartitions = partitionsBeingReassigned.filter { partition =>
@@ -833,11 +876,16 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
     onPreferredReplicaElection(controllerContext.partitionsUndergoingPreferredReplicaElection.toSet)
   }
 
+  //创建ControllerChannelManager对象,并且执行startUp方法
   private def startChannelManager() {
     controllerContext.controllerChannelManager = new ControllerChannelManager(controllerContext, config)
     controllerContext.controllerChannelManager.startup()
   }
 
+  /**
+   * 1.循环所有的topic-partition
+   * 2.获取每一个/brokers/topics/${topic}/partitions/${partitionId}/state路径下的内容,生成LeaderIsrAndControllerEpoch对象
+   */
   private def updateLeaderAndIsrCache() {
     val leaderAndIsrInfo = ZkUtils.getPartitionLeaderAndIsrForTopics(zkClient, controllerContext.partitionReplicaAssignment.keySet)
     for((topicPartition, leaderIsrAndControllerEpoch) <- leaderAndIsrInfo)
@@ -934,18 +982,22 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
     }
   }
 
+  //为/admin/reassign_partitions节点注册事件PartitionsReassignedListener
   private def registerReassignedPartitionsListener() = {
     zkClient.subscribeDataChanges(ZkUtils.ReassignPartitionsPath, partitionReassignedListener)
   }
 
+  //解除/admin/reassign_partitions节点监听
   private def deregisterReassignedPartitionsListener() = {
     zkClient.unsubscribeDataChanges(ZkUtils.ReassignPartitionsPath, partitionReassignedListener)
   }
 
+  ///admin/preferred_replica_election节点添加监听PreferredReplicaElectionListener
   private def registerPreferredReplicaElectionListener() {
     zkClient.subscribeDataChanges(ZkUtils.PreferredReplicaLeaderElectionPath, preferredReplicaElectionListener)
   }
 
+  //解除/admin/preferred_replica_election节点监听
   private def deregisterPreferredReplicaElectionListener() {
     zkClient.unsubscribeDataChanges(ZkUtils.PreferredReplicaLeaderElectionPath, preferredReplicaElectionListener)
   }
@@ -958,6 +1010,7 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
     }
   }
 
+  //初始化/controller_epoch节点,获取该节点存储的已经第几次更改controller
   private def readControllerEpochFromZookeeper() {
     // initialize the controller epoch and zk version by reading from zookeeper
     if(ZkUtils.pathExists(controllerContext.zkClient, ZkUtils.ControllerEpochPath)) {
@@ -1223,6 +1276,7 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
  * 3. Any replica in the new set of replicas are dead
  * If any of the above conditions are satisfied, it logs an error and removes the partition from list of reassigned
  * partitions.
+ * 为/admin/reassign_partitions节点注册事件PartitionsReassignedListener
  */
 class PartitionsReassignedListener(controller: KafkaController) extends IZkDataListener with Logging {
   this.logIdent = "[PartitionsReassignedListener on " + controller.config.brokerId + "]: "
@@ -1365,6 +1419,7 @@ class PreferredReplicaElectionListener(controller: KafkaController) extends IZkD
   }
 }
 
+//重新分配topic-partition,参数newReplicas是重新分配的brokerId集合
 case class ReassignedPartitionsContext(var newReplicas: Seq[Int] = Seq.empty,
                                        var isrChangeListener: ReassignedPartitionsIsrChangeListener = null)
 
