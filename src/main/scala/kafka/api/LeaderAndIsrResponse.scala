@@ -23,7 +23,7 @@ import kafka.api.ApiUtils._
 import collection.mutable.HashMap
 import collection.Map
 
-
+//参见LeaderAndIsrRequest
 object LeaderAndIsrResponse {
   def readFrom(buffer: ByteBuffer): LeaderAndIsrResponse = {
     val correlationId = buffer.getInt
@@ -41,6 +41,7 @@ object LeaderAndIsrResponse {
 }
 
 
+//参数responseMap key是topic-partition,value是针对该partition的返回值
 case class LeaderAndIsrResponse(correlationId: Int,
                                 responseMap: Map[(String, Int), Short],
                                 errorCode: Short = ErrorMapping.NoError)

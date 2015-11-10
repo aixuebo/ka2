@@ -598,11 +598,13 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
     val reassignedReplicas = reassignedPartitionContext.newReplicas
     areReplicasInIsr(topicAndPartition.topic, topicAndPartition.partition, reassignedReplicas) match {
       case false =>
+        //false说明新添加的reassignedReplicas集合,已经都在该partition的备份集合内了,不需要再次添加
         info("New replicas %s for partition %s being ".format(reassignedReplicas.mkString(","), topicAndPartition) +
           "reassigned not yet caught up with the leader")
-        val newReplicasNotInOldReplicaList = reassignedReplicas.toSet -- controllerContext.partitionReplicaAssignment(topicAndPartition).toSet
-        val newAndOldReplicas = (reassignedPartitionContext.newReplicas ++ controllerContext.partitionReplicaAssignment(topicAndPartition)).toSet
+        val newReplicasNotInOldReplicaList = reassignedReplicas.toSet -- controllerContext.partitionReplicaAssignment(topicAndPartition).toSet //新集合中不在内存映射的节点集合
+        val newAndOldReplicas = (reassignedPartitionContext.newReplicas ++ controllerContext.partitionReplicaAssignment(topicAndPartition)).toSet//新老集合之和
         //1. Update AR in ZK with OAR + RAR.
+        //为/brokers/topics/${topic}节点写入最新内容{partitions:{"1":[11,12,14],"2":[11,16,19]} }
         updateAssignedReplicasForPartition(topicAndPartition, newAndOldReplicas.toSeq)
         //2. Send LeaderAndIsr request to every replica in OAR + RAR (with AR as OAR + RAR).
         updateLeaderEpochAndSendRequest(topicAndPartition, controllerContext.partitionReplicaAssignment(topicAndPartition),
@@ -892,7 +894,13 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
       controllerContext.partitionLeadershipInfo.put(topicPartition, leaderIsrAndControllerEpoch)
   }
 
+  /**
+   * 1.查找topic-partition目前已经有的备份节点集合
+   * 2.过滤已经存在的集合中,参数2replicas不在已经存在的集合内的集合
+   * 3.true表示存在等待新添加的集合
+   */
   private def areReplicasInIsr(topic: String, partition: Int, replicas: Seq[Int]): Boolean = {
+    //获取/brokers/topics/ ${topic}/partitions/${partitionId}/state路径下的内容,生成LeaderIsrAndControllerEpoch对象
     getLeaderAndIsrForPartition(zkClient, topic, partition) match {
       case Some(leaderAndIsr) =>
         val replicasNotInIsr = replicas.filterNot(r => leaderAndIsr.isr.contains(r))
@@ -945,13 +953,17 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
     replicaStateMachine.handleStateChanges(replicasToBeDeleted, NonExistentReplica)
   }
 
+  //为/brokers/topics/${topic}节点写入最新内容{partitions:{"1":[11,12,14],"2":[11,16,19]} }
   private def updateAssignedReplicasForPartition(topicAndPartition: TopicAndPartition,
                                                  replicas: Seq[Int]) {
+    //过滤查找所有属于该topic的所有partition
     val partitionsAndReplicasForThisTopic = controllerContext.partitionReplicaAssignment.filter(_._1.topic.equals(topicAndPartition.topic))
+    //重新更新该partition对应的备份节点集合
     partitionsAndReplicasForThisTopic.put(topicAndPartition, replicas)
+    //为/brokers/topics/${topic}节点写入最新内容{partitions:{"1":[11,12,14],"2":[11,16,19]} }
     updateAssignedReplicasForPartition(topicAndPartition, partitionsAndReplicasForThisTopic)
     info("Updated assigned replicas for partition %s being reassigned to %s ".format(topicAndPartition, replicas.mkString(",")))
-    // update the assigned replica list after a successful zookeeper write
+    // update the assigned replica list after a successful zookeeper write 更新内存映射
     controllerContext.partitionReplicaAssignment.put(topicAndPartition, replicas)
   }
 
@@ -1037,10 +1049,14 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
     controllerContext.partitionsBeingReassigned.remove(topicAndPartition)
   }
 
+  //为/brokers/topics/${topic}节点写入内容{partitions:{"1":[11,12,14],"2":[11,16,19]} }
   def updateAssignedReplicasForPartition(topicAndPartition: TopicAndPartition,
                                          newReplicaAssignmentForTopic: Map[TopicAndPartition, Seq[Int]]) {
     try {
+      ///brokers/topics/${topic}
       val zkPath = ZkUtils.getTopicPath(topicAndPartition.topic)
+      //ZkUtils.replicaAssignmentZkData的参数是Map[String, Seq[Int]] ,key是partition,value是该partition所在备份节点集合
+      //为/brokers/topics/${topic}节点写入内容{partitions:{"1":[11,12,14],"2":[11,16,19]} }
       val jsonPartitionMap = ZkUtils.replicaAssignmentZkData(newReplicaAssignmentForTopic.map(e => (e._1.partition.toString -> e._2)))
       ZkUtils.updatePersistentPath(zkClient, zkPath, jsonPartitionMap)
       debug("Updated path %s with %s for replica assignment".format(zkPath, jsonPartitionMap))
@@ -1089,12 +1105,13 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
    */
   def removeReplicaFromIsr(topic: String, partition: Int, replicaId: Int): Option[LeaderIsrAndControllerEpoch] = {
     val topicAndPartition = TopicAndPartition(topic, partition)
+    //打印日志,移除某一个replicaId从ISR集合中xxx
     debug("Removing replica %d from ISR %s for partition %s.".format(replicaId,
       controllerContext.partitionLeadershipInfo(topicAndPartition).leaderAndIsr.isr.mkString(","), topicAndPartition))
     var finalLeaderIsrAndControllerEpoch: Option[LeaderIsrAndControllerEpoch] = None
     var zkWriteCompleteOrUnnecessary = false
     while (!zkWriteCompleteOrUnnecessary) {
-      // refresh leader and isr from zookeeper again
+      // refresh leader and isr from zookeeper again 获取/brokers/topics/${topic}/partitions/${partitionId}/state路径下的内容,生成LeaderIsrAndControllerEpoch对象
       val leaderIsrAndEpochOpt = ReplicationUtils.getLeaderIsrAndEpochForPartition(zkClient, topic, partition)
       zkWriteCompleteOrUnnecessary = leaderIsrAndEpochOpt match {
         case Some(leaderIsrAndEpoch) => // increment the leader epoch even if the ISR changes
@@ -1104,7 +1121,7 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
             throw new StateChangeFailedException("Leader and isr path written by another controller. This probably" +
               "means the current controller with epoch %d went through a soft failure and another ".format(epoch) +
               "controller was elected with epoch %d. Aborting state change by this controller".format(controllerEpoch))
-          if (leaderAndIsr.isr.contains(replicaId)) {
+          if (leaderAndIsr.isr.contains(replicaId)) {//查找该partition对应的备份集合中是否有replicaId节点
             // if the replica to be removed from the ISR is also the leader, set the new leader value to -1
             val newLeader = if (replicaId == leaderAndIsr.leader) LeaderAndIsr.NoLeader else leaderAndIsr.leader
             var newIsr = leaderAndIsr.isr.filter(b => b != replicaId)
@@ -1130,7 +1147,7 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
             if (updateSucceeded)
               info("New leader and ISR for partition %s is %s".format(topicAndPartition, newLeaderAndIsr.toString()))
             updateSucceeded
-          } else {
+          } else {//该节点不在备份集合中,则更新leader信息在内存中的映射
             warn("Cannot remove replica %d from ISR of partition %s since it is not in the ISR. Leader = %d ; ISR = %s"
                  .format(replicaId, topicAndPartition, leaderAndIsr.leader, leaderAndIsr.isr))
             finalLeaderIsrAndControllerEpoch = Some(LeaderIsrAndControllerEpoch(leaderAndIsr, epoch))
@@ -1150,6 +1167,7 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
    * @param topic topic
    * @param partition partition
    * @return the new leaderAndIsr with an incremented leader epoch, or None if leaderAndIsr is empty.
+   * 仅仅更新topic-partition对应的LeaderIsrAndControllerEpoch对象的leaderEpochm和zookeeper的version,不更新leader和isr集合
    */
   private def updateLeaderEpoch(topic: String, partition: Int): Option[LeaderIsrAndControllerEpoch] = {
     val topicAndPartition = TopicAndPartition(topic, partition)
@@ -1157,7 +1175,7 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
     var finalLeaderIsrAndControllerEpoch: Option[LeaderIsrAndControllerEpoch] = None
     var zkWriteCompleteOrUnnecessary = false
     while (!zkWriteCompleteOrUnnecessary) {
-      // refresh leader and isr from zookeeper again
+      // refresh leader and isr from zookeeper again,获取/brokers/topics/${topic}/partitions/${partitionId}/state路径下的内容,生成LeaderIsrAndControllerEpoch对象
       val leaderIsrAndEpochOpt = ReplicationUtils.getLeaderIsrAndEpochForPartition(zkClient, topic, partition)
       zkWriteCompleteOrUnnecessary = leaderIsrAndEpochOpt match {
         case Some(leaderIsrAndEpoch) =>
@@ -1178,7 +1196,7 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
           newLeaderAndIsr.zkVersion = newVersion
           finalLeaderIsrAndControllerEpoch = Some(LeaderIsrAndControllerEpoch(newLeaderAndIsr, epoch))
           if (updateSucceeded)
-            info("Updated leader epoch for partition %s to %d".format(topicAndPartition, newLeaderAndIsr.leaderEpoch))
+            info("Updated leader epoch for partition %s to %d".format(topicAndPartition, newLeaderAndIsr.leaderEpoch)) //更新zookeeper成功
           updateSucceeded
         case None =>
           throw new IllegalStateException(("Cannot update leader epoch for partition %s as leaderAndIsr path is empty. " +

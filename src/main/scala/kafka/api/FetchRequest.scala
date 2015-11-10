@@ -181,10 +181,12 @@ case class FetchRequest(versionId: Short = FetchRequest.CurrentVersion,
 class FetchRequestBuilder() {
   private val correlationId = new AtomicInteger(0)
   private val versionId = FetchRequest.CurrentVersion
-  private var clientId = ConsumerConfig.DefaultClientId
-  private var replicaId = Request.OrdinaryConsumerId
+  private var clientId = ConsumerConfig.DefaultClientId//发送请求的客户端标示
+  private var replicaId = Request.OrdinaryConsumerId//消费者节点
   private var maxWait = FetchRequest.DefaultMaxWait
   private var minBytes = FetchRequest.DefaultMinBytes
+  
+  //key是准备抓取partition,value是从哪个位置开始抓取,准备抓取多少个字节
   private val requestMap = new collection.mutable.HashMap[TopicAndPartition, PartitionFetchInfo]
 
   //添加要抓取topic-partition上从offset开始,抓取fetchSize个数据

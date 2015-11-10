@@ -20,13 +20,13 @@ package kafka.api
 import kafka.common.KafkaException
 import java.nio.ByteBuffer
 
-//请求的分类
+//请求的分类,真正的处理逻辑参见KafkaApis类实现
 object RequestKeys {
   val ProduceKey: Short = 0//生产者请求
-  val FetchKey: Short = 1//抓取某些个topic的某些partition,从offset开始,抓取fetchSize个数据
+  val FetchKey: Short = 1//抓取某些个topic的某些partition,从offset开始,抓取fetchSize个数据,同时也用于partition数据从follow节点同步leader节点数据,参见ReplicaFetcherThread、AbstractFetcherThread
   val OffsetsKey: Short = 2
   val MetadataKey: Short = 3//获取topic元数据信息请求,参见TopicMetadataRequest
-  val LeaderAndIsrKey: Short = 4
+  val LeaderAndIsrKey: Short = 4//更新每一个topic-partition对应的leader和同步节点集合,参见LeaderAndIsrRequest
   val StopReplicaKey: Short = 5
   val UpdateMetadataKey: Short = 6
   val ControlledShutdownKey: Short = 7

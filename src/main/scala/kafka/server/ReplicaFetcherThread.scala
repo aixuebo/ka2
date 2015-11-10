@@ -24,6 +24,7 @@ import kafka.message.ByteBufferMessageSet
 import kafka.api.{OffsetRequest, FetchResponsePartitionData}
 import kafka.common.{KafkaStorageException, TopicAndPartition}
 
+//向partition的leader抓取数据
 class ReplicaFetcherThread(name:String,
                            sourceBroker: Broker,
                            brokerConfig: KafkaConfig,
@@ -34,7 +35,7 @@ class ReplicaFetcherThread(name:String,
                                 socketTimeout = brokerConfig.replicaSocketTimeoutMs,
                                 socketBufferSize = brokerConfig.replicaSocketReceiveBufferBytes,
                                 fetchSize = brokerConfig.replicaFetchMaxBytes,
-                                fetcherBrokerId = brokerConfig.brokerId,
+                                fetcherBrokerId = brokerConfig.brokerId,//本地消费者节点
                                 maxWait = brokerConfig.replicaFetchWaitMaxMs,
                                 minBytes = brokerConfig.replicaFetchMinBytes,
                                 isInterruptible = false) {

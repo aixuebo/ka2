@@ -32,8 +32,8 @@ import collection.Set
 object LeaderAndIsr {
   val initialLeaderEpoch: Int = 0
   val initialZKVersion: Int = 0
-  val NoLeader = -1
-  val LeaderDuringDelete = -2
+  val NoLeader = -1//表示没有leader
+  val LeaderDuringDelete = -2//表示该哦leader正在删除中
 }
 
 /**
@@ -135,6 +135,7 @@ object LeaderAndIsrRequest {
   }
 }
 
+//参数partitionStateInfos,key是topic-partition组成的元组,value是该partition所对应的备份信息
 case class LeaderAndIsrRequest (versionId: Short,
                                 correlationId: Int,
                                 clientId: String,

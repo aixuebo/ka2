@@ -39,7 +39,7 @@ object ErrorMapping {
   val BrokerNotAvailableCode: Short = 8
   val ReplicaNotAvailableCode: Short = 9
   val MessageSizeTooLargeCode: Short = 10
-  val StaleControllerEpochCode: Short = 11
+  val StaleControllerEpochCode: Short = 11//controller的epoche版本号异常
   val OffsetMetadataTooLargeCode: Short = 12
   val StaleLeaderEpochCode: Short = 13
   val OffsetsLoadInProgressCode: Short = 14

@@ -46,6 +46,7 @@ class ControllerChannelManager (private val controllerContext: ControllerContext
     }
   }
 
+  //关闭与每一个节点的线程
   def shutdown() = {
     brokerLock synchronized {
       brokerStateInfo.foreach(brokerState => removeExistingBroker(brokerState._1))
@@ -208,7 +209,10 @@ class ControllerBrokerRequestBatch(controller: KafkaController) extends  Logging
   val controllerContext = controller.controllerContext
   val controllerId: Int = controller.config.brokerId
   val clientId: String = controller.clientId
+  //key是节点ID,value是一个Map,key是元组topic-partition组成,value是该partition对应的PartitionStateInfo对象
   val leaderAndIsrRequestMap = new mutable.HashMap[Int, mutable.HashMap[(String, Int), PartitionStateInfo]]
+  //key是节点ID,value是该节点上等待删除的备份集合,
+  //StopReplicaRequestInfo表示要删除的一个partition备份信息,包含partition-topic-brokerId信息,是否删除该partition,以及回调函数
   val stopReplicaRequestMap = new mutable.HashMap[Int, Seq[StopReplicaRequestInfo]]
   val updateMetadataRequestMap = new mutable.HashMap[Int, mutable.HashMap[TopicAndPartition, PartitionStateInfo]]
   private val stateChangeLogger = KafkaController.stateChangeLogger
@@ -244,6 +248,7 @@ class ControllerBrokerRequestBatch(controller: KafkaController) extends  Logging
     brokerIds.filter(b => b >= 0).foreach {
       brokerId =>
         leaderAndIsrRequestMap.getOrElseUpdate(brokerId, new mutable.HashMap[(String, Int), PartitionStateInfo])
+        //key是节点ID,value是一个Map,key是元组topic-partition组成,value是该partition对应的PartitionStateInfo对象
         leaderAndIsrRequestMap(brokerId).put((topic, partition),
           PartitionStateInfo(leaderIsrAndControllerEpoch, replicas.toSet))
     }
@@ -252,6 +257,7 @@ class ControllerBrokerRequestBatch(controller: KafkaController) extends  Logging
                                        Set(topicAndPartition))
   }
 
+  //删除topic-partition在brokerIds节点集合上的信息,删除后调用callback回调函数
   def addStopReplicaRequestForBrokers(brokerIds: Seq[Int], topic: String, partition: Int, deletePartition: Boolean,
                                       callback: (RequestOrResponse, Int) => Unit = null) {
     brokerIds.filter(b => b >= 0).foreach { brokerId =>
@@ -260,6 +266,7 @@ class ControllerBrokerRequestBatch(controller: KafkaController) extends  Logging
       if(callback != null)
         stopReplicaRequestMap(brokerId) = v :+ StopReplicaRequestInfo(PartitionAndReplica(topic, partition, brokerId),
           deletePartition, (r: RequestOrResponse) => { callback(r, brokerId) })
+          //说明 (r: RequestOrResponse) => { callback(r, brokerId) }  表示参数r是RequestOrResponse类型的,调用callback方法,传入r和该brokerId
       else
         stopReplicaRequestMap(brokerId) = v :+ StopReplicaRequestInfo(PartitionAndReplica(topic, partition, brokerId),
           deletePartition)
@@ -274,7 +281,7 @@ class ControllerBrokerRequestBatch(controller: KafkaController) extends  Logging
       val leaderIsrAndControllerEpochOpt = controllerContext.partitionLeadershipInfo.get(partition)
       leaderIsrAndControllerEpochOpt match {
         case Some(leaderIsrAndControllerEpoch) =>
-          val replicas = controllerContext.partitionReplicaAssignment(partition).toSet
+          val replicas = controllerContext.partitionReplicaAssignment(partition).toSet //该partition所在节点集合
           val partitionStateInfo = if (beingDeleted) {
             val leaderAndIsr = new LeaderAndIsr(LeaderAndIsr.LeaderDuringDelete, leaderIsrAndControllerEpoch.leaderAndIsr.isr)
             PartitionStateInfo(LeaderIsrAndControllerEpoch(leaderAndIsr, leaderIsrAndControllerEpoch.controllerEpoch), replicas)
@@ -354,6 +361,7 @@ case class ControllerBrokerStateInfo(channel: BlockingChannel,//与服务器brok
                                      messageQueue: BlockingQueue[(RequestOrResponse, (RequestOrResponse) => Unit)],//存储发往服务器broker节点的数据请求队列
                                      requestSendThread: RequestSendThread)//真正从messageQueue队列中获取数据,执行发送请求,接收返回值,处理回调函数的线程
 
+//表示要删除的一个partition备份信息,包含partition-topic-brokerId信息,是否删除该partition,以及回调函数
 case class StopReplicaRequestInfo(replica: PartitionAndReplica, deletePartition: Boolean, callback: (RequestOrResponse) => Unit = null)
 
 class Callbacks private (var leaderAndIsrResponseCallback:(RequestOrResponse) => Unit = null,
@@ -362,6 +370,7 @@ class Callbacks private (var leaderAndIsrResponseCallback:(RequestOrResponse) =>
 
 object Callbacks {
   class CallbackBuilder {
+    //参数是RequestOrResponse,返回值是Unit,默认为null
     var leaderAndIsrResponseCbk:(RequestOrResponse) => Unit = null
     var updateMetadataResponseCbk:(RequestOrResponse) => Unit = null
     var stopReplicaResponseCbk:(RequestOrResponse, Int) => Unit = null

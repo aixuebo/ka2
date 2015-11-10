@@ -19,10 +19,12 @@ package kafka.server
 
 import kafka.cluster.Broker
 
+//从leader节点抓取数据,从leader节点抓取数据,并且将数据抓取成功后添加到对应的log文件中
 class ReplicaFetcherManager(private val brokerConfig: KafkaConfig, private val replicaMgr: ReplicaManager)
         extends AbstractFetcherManager("ReplicaFetcherManager on broker " + brokerConfig.brokerId,
                                        "Replica", brokerConfig.numReplicaFetchers) {
 
+  //为第fetcherId个线程创建抓取线程
   override def createFetcherThread(fetcherId: Int, sourceBroker: Broker): AbstractFetcherThread = {
     new ReplicaFetcherThread("ReplicaFetcherThread-%d-%d".format(fetcherId, sourceBroker.id), sourceBroker, brokerConfig, replicaMgr)
   }

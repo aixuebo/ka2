@@ -36,38 +36,45 @@ import com.yammer.metrics.core.Gauge
 /**
  *  Abstract class for fetching data from multiple partitions from the same broker.
  *  消费者clientId,要向sourceBroker该节点发送请求,获取数据
+ *  sourceBroker节点就是partition的leader节点
  */
 
 /**
  * @fetchSize 表示每次抓取的数据数量
+ * @fetcherBrokerId 标示本地消费者节点
  */
 abstract class AbstractFetcherThread(name: String, clientId: String, sourceBroker: Broker, socketTimeout: Int, socketBufferSize: Int,
                                      fetchSize: Int, fetcherBrokerId: Int = -1, maxWait: Int = 0, minBytes: Int = 1,
                                      isInterruptible: Boolean = true)
   extends ShutdownableThread(name, isInterruptible) {
+  //等待抓取的数据映射
   private val partitionMap = new mutable.HashMap[TopicAndPartition, Long] // a (topic, partition) -> offset map
   private val partitionMapLock = new ReentrantLock
   private val partitionMapCond = partitionMapLock.newCondition()
+  //产生一个消费者,即该消费者消费数据,因为sourceBroker节点就是partition的leader节点
   val simpleConsumer = new SimpleConsumer(sourceBroker.host, sourceBroker.port, socketTimeout, socketBufferSize, clientId)
+  //客户端向host:prot的标示
   private val metricId = new ClientIdAndBroker(clientId, sourceBroker.host, sourceBroker.port)
   val fetcherStats = new FetcherStats(metricId)
   val fetcherLagStats = new FetcherLagStats(metricId)
+  
+  //抓取请求生成器
   val fetchRequestBuilder = new FetchRequestBuilder().
           clientId(clientId).
-          replicaId(fetcherBrokerId).
+          replicaId(fetcherBrokerId).//消费者节点
           maxWait(maxWait).
           minBytes(minBytes)
 
   /* callbacks to be defined in subclass */
 
-  // process fetched data
+  // process fetched data 处理抓取数据
   def processPartitionData(topicAndPartition: TopicAndPartition, fetchOffset: Long,
                            partitionData: FetchResponsePartitionData)
 
-  // handle a partition whose offset is out of range and return a new fetch offset
+  // handle a partition whose offset is out of range and return a new fetch offset 出去抓取的位置超过范围的请求
   def handleOffsetOutOfRange(topicAndPartition: TopicAndPartition): Long
 
-  // deal with partitions with errors, potentially due to leadership changes
+  // deal with partitions with errors, potentially due to leadership changes 处理抓取过程中出现异常的情况
   def handlePartitionsWithErrors(partitions: Iterable[TopicAndPartition])
 
   override def shutdown(){
@@ -79,6 +86,8 @@ abstract class AbstractFetcherThread(name: String, clientId: String, sourceBroke
     inLock(partitionMapLock) {
       if (partitionMap.isEmpty)
         partitionMapCond.await(200L, TimeUnit.MILLISECONDS)
+        
+      //添加要抓取topic-partition上从offset开始,抓取fetchSize个数据
       partitionMap.foreach {
         case((topicAndPartition, offset)) =>
           fetchRequestBuilder.addFetch(topicAndPartition.topic, topicAndPartition.partition,
@@ -87,10 +96,13 @@ abstract class AbstractFetcherThread(name: String, clientId: String, sourceBroke
     }
 
     val fetchRequest = fetchRequestBuilder.build()
+    
+    //真正发送抓取数据请求,去进行抓取数据
     if (!fetchRequest.requestInfo.isEmpty)
       processFetchRequest(fetchRequest)
   }
 
+  //真正发送抓取数据请求,去进行抓取数据
   private def processFetchRequest(fetchRequest: FetchRequest) {
     val partitionsWithError = new mutable.HashSet[TopicAndPartition]//抓取失败的TopicAndPartition集合
     var response: FetchResponse = null
@@ -118,20 +130,24 @@ abstract class AbstractFetcherThread(name: String, clientId: String, sourceBroke
             val (topic, partitionId) = topicAndPartition.asTuple
             val currentOffset = partitionMap.get(topicAndPartition)
             // we append to the log if the current offset is defined and it is the same as the offset requested during fetch
+            //校验请求前时,抓取该partition的开始位置和当前接收到返回值后的位置是否一致,进入if说明是一致的,即合法的
             if (currentOffset.isDefined && fetchRequest.requestInfo(topicAndPartition).offset == currentOffset.get) {
               partitionData.error match {
                 case ErrorMapping.NoError =>
+                  //说明抓取数据成功
                   try {
                     val messages = partitionData.messages.asInstanceOf[ByteBufferMessageSet]
                     val validBytes = messages.validBytes
+                    //获取抓取后的更新位置
                     val newOffset = messages.shallowIterator.toSeq.lastOption match {
                       case Some(m: MessageAndOffset) => m.nextOffset
                       case None => currentOffset.get
                     }
+                    //进行更新,表示已经抓取该partition的newOffset位置了,下次抓取从该位置开始抓取
                     partitionMap.put(topicAndPartition, newOffset)
                     fetcherLagStats.getFetcherLagStats(topic, partitionId).lag = partitionData.hw - newOffset
                     fetcherStats.byteRate.mark(validBytes)
-                    // Once we hand off the partition data to the subclass, we can't mess with it any more in this thread
+                    // Once we hand off the partition data to the subclass, we can't mess with it any more in this thread 处理抓取回来的数据
                     processPartitionData(topicAndPartition, currentOffset.get, partitionData)
                   } catch {
                     case ime: InvalidMessageException =>
@@ -146,6 +162,7 @@ abstract class AbstractFetcherThread(name: String, clientId: String, sourceBroke
                   }
                 case ErrorMapping.OffsetOutOfRangeCode =>
                   try {
+                    //超出了获取数据的位置,要重新计算位置
                     val newOffset = handleOffsetOutOfRange(topicAndPartition)
                     partitionMap.put(topicAndPartition, newOffset)
                     error("Current offset %d for partition [%s,%d] out of range; reset offset to %d"
@@ -173,6 +190,7 @@ abstract class AbstractFetcherThread(name: String, clientId: String, sourceBroke
     }
   }
 
+  //为该线程添加要抓取的partition集合,key是partition对象,value是从什么节点开始同步
   def addPartitions(partitionAndOffsets: Map[TopicAndPartition, Long]) {
     partitionMapLock.lockInterruptibly()
     try {
@@ -189,6 +207,7 @@ abstract class AbstractFetcherThread(name: String, clientId: String, sourceBroke
     }
   }
 
+  //不在抓取该partition
   def removePartitions(topicAndPartitions: Set[TopicAndPartition]) {
     partitionMapLock.lockInterruptibly()
     try {
@@ -198,6 +217,7 @@ abstract class AbstractFetcherThread(name: String, clientId: String, sourceBroke
     }
   }
 
+  //正在抓取的partition数量
   def partitionCount() = {
     partitionMapLock.lockInterruptibly()
     try {

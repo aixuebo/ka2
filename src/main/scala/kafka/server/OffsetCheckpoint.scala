@@ -28,6 +28,8 @@ import java.io._
  * 如果该类下没有tmp文件,则以file稳准
  * 如果该类下有tmp,又有file,则以file为准,因为tmp可能正在生成中,程序出问题了
  * 如果该类下有tmp,没有file,则说明tmp是最新版,因为有tmp后,就将file删除掉了,所以只有tmp,没有file
+ * 
+ * 在每一个log磁盘下,创建一个OffsetCheckpoint对象,文件名是replication-offset-checkpoint
  */
 class OffsetCheckpoint(val file: File) extends Logging {
   private val lock = new Object()
