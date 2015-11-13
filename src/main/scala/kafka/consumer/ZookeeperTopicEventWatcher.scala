@@ -22,6 +22,7 @@ import kafka.utils.{ZkUtils, ZKStringSerializer, Logging}
 import org.I0Itec.zkclient.{IZkStateListener, IZkChildListener, ZkClient}
 import org.apache.zookeeper.Watcher.Event.KeeperState
 
+//监听/brokers/topics节点,一旦有topic变更则触发TopicEventHandler事件
 class ZookeeperTopicEventWatcher(val zkClient: ZkClient,
     val eventHandler: TopicEventHandler[String]) extends Logging {
 
@@ -31,7 +32,7 @@ class ZookeeperTopicEventWatcher(val zkClient: ZkClient,
 
   private def startWatchingTopicEvents() {
     val topicEventListener = new ZkTopicEventListener()
-    ZkUtils.makeSurePersistentPathExists(zkClient, ZkUtils.BrokerTopicsPath)
+    ZkUtils.makeSurePersistentPathExists(zkClient, ZkUtils.BrokerTopicsPath)//确保/brokers/topics节点存在
 
     zkClient.subscribeStateChanges(
       new ZkSessionExpireListener(topicEventListener))
@@ -57,6 +58,7 @@ class ZookeeperTopicEventWatcher(val zkClient: ZkClient,
     }
   }
 
+  //监听/brokers/topics节点有变化
   class ZkTopicEventListener extends IZkChildListener {
 
     @throws(classOf[Exception])
@@ -64,6 +66,7 @@ class ZookeeperTopicEventWatcher(val zkClient: ZkClient,
       lock.synchronized {
         try {
           if (zkClient != null) {
+            //获取最新的topic集合
             val latestTopics = zkClient.getChildren(ZkUtils.BrokerTopicsPath).toList
             debug("all topics: %s".format(latestTopics))
             eventHandler.handleTopicEvent(latestTopics)
@@ -78,6 +81,7 @@ class ZookeeperTopicEventWatcher(val zkClient: ZkClient,
 
   }
 
+  //监听/brokers/topics节点
   class ZkSessionExpireListener(val topicEventListener: ZkTopicEventListener)
     extends IZkStateListener {
 

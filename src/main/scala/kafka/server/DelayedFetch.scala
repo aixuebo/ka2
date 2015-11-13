@@ -50,6 +50,7 @@ class DelayedFetch(override val keys: Seq[TopicAndPartition],
       case (topicAndPartition, fetchOffset) =>
         try {
           if (fetchOffset != LogOffsetMetadata.UnknownOffsetMetadata) {
+            //查找本地的备份对象
             val replica = replicaManager.getLeaderReplicaIfLocal(topicAndPartition.topic, topicAndPartition.partition)
             val endOffset =
               if (fromFollower)

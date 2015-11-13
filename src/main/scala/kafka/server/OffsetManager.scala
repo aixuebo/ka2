@@ -61,7 +61,7 @@ import org.I0Itec.zkclient.ZkClient
  */
 case class OffsetManagerConfig(maxMetadataSize: Int = OffsetManagerConfig.DefaultMaxMetadataSize,
                                loadBufferSize: Int = OffsetManagerConfig.DefaultLoadBufferSize,
-                               offsetsRetentionMs: Long = 24*60*60000L,
+                               offsetsRetentionMs: Long = 24*60*60000L,//默认24小时
                                offsetsRetentionCheckIntervalMs: Long = OffsetManagerConfig.DefaultOffsetsRetentionCheckIntervalMs,
                                offsetsTopicNumPartitions: Int = OffsetManagerConfig.DefaultOffsetsTopicNumPartitions,
                                offsetsTopicSegmentBytes: Int = OffsetManagerConfig.DefaultOffsetsTopicSegmentBytes,
@@ -91,6 +91,8 @@ class OffsetManager(val config: OffsetManagerConfig,
   private val offsetsCache = new Pool[GroupTopicPartition, OffsetAndMetadata]
   private val followerTransitionLock = new Object
 
+  //加载topic为__consumer_offsets的第offsetsPartition个partition,是异步的方式读取
+  //该值存储的是第几个offsetsPartition正在被异步加载中,加载完成后就会从该set中清除
   private val loadingPartitions: mutable.Set[Int] = mutable.Set()
 
   private val shuttingDown = new AtomicBoolean(false)
@@ -116,17 +118,25 @@ class OffsetManager(val config: OffsetManagerConfig,
     debug("Compacting offsets cache.")
     val startMs = SystemTime.milliseconds
 
+    //过滤查找超过config.offsetsRetentionMs时间的数据
     val staleOffsets = offsetsCache.filter(startMs - _._2.timestamp > config.offsetsRetentionMs)
 
+    //打印日志,发现多少个超过config.offsetsRetentionMs时间的数据
     debug("Found %d stale offsets (older than %d ms).".format(staleOffsets.size, config.offsetsRetentionMs))
 
     // delete the stale offsets from the table and generate tombstone messages to remove them from the log
+    /**
+     * 1.移除超过config.offsetsRetentionMs时间的数据
+     * 
+     * 返回值 Map[Int, Iterable[(Int, Message)]] key是partition,value是 offsetsPartition, new Message(bytes = null, key = commitKey) 组成的元组
+     */
     val tombstonesForPartition = staleOffsets.map { case(groupTopicAndPartition, offsetAndMetadata) =>
-      val offsetsPartition = partitionFor(groupTopicAndPartition.group)
+      val offsetsPartition = partitionFor(groupTopicAndPartition.group) //group在哪个组
       trace("Removing stale offset and metadata for %s: %s".format(groupTopicAndPartition, offsetAndMetadata))
 
       offsetsCache.remove(groupTopicAndPartition)
 
+      //val commitKey: Array[Byte],用字节数组组装成key
       val commitKey = OffsetManager.offsetCommitKey(groupTopicAndPartition.group,
         groupTopicAndPartition.topicPartition.topic, groupTopicAndPartition.topicPartition.partition)
 
@@ -136,7 +146,7 @@ class OffsetManager(val config: OffsetManagerConfig,
     // Append the tombstone messages to the offset partitions. It is okay if the replicas don't receive these (say,
     // if we crash or leaders move) since the new leaders will get rid of stale offsets during their own purge cycles.
     val numRemoved = tombstonesForPartition.flatMap { case(offsetsPartition, tombstones) =>
-      val partitionOpt = replicaManager.getPartition(OffsetManager.OffsetsTopicName, offsetsPartition)
+      val partitionOpt = replicaManager.getPartition(OffsetManager.OffsetsTopicName, offsetsPartition) //获取topic为__consumer_offsets的,第offsetsPartition个partition
       partitionOpt.map { partition =>
         val appendPartition = TopicAndPartition(OffsetManager.OffsetsTopicName, offsetsPartition)
         val messages = tombstones.map(_._2).toSeq
@@ -144,6 +154,7 @@ class OffsetManager(val config: OffsetManagerConfig,
         trace("Marked %d offsets in %s for deletion.".format(messages.size, appendPartition))
 
         try {
+          //向topic:__consumer_offsets写入信息,即写入group-topic-partition信息
           partition.appendMessagesToLeader(new ByteBufferMessageSet(config.offsetsTopicCompressionCodec, messages:_*))
           tombstones.size
         }
@@ -156,6 +167,7 @@ class OffsetManager(val config: OffsetManagerConfig,
       }
     }.sum
 
+    //移除多少个,花费多少时间
     debug("Removed %d stale offsets in %d milliseconds.".format(numRemoved, SystemTime.milliseconds - startMs))
   }
 
@@ -192,6 +204,7 @@ class OffsetManager(val config: OffsetManagerConfig,
     offsetsCache.put(key, offsetAndMetadata)
   }
 
+  //批量存储,一个group可以操作一组topic-partition
   def putOffsets(group: String, offsets: Map[TopicAndPartition, OffsetAndMetadata]) {
     // this method is called _after_ the offsets have been durably appended to the commit log, so there is no need to
     // check for current leadership as we do for the offset fetch
@@ -204,10 +217,13 @@ class OffsetManager(val config: OffsetManagerConfig,
   /**
    * The most important guarantee that this API provides is that it should never return a stale offset. i.e., it either
    * returns the current offset or it begins to sync the cache from the log (and returns an error code).
+   * 获取某个group下,若干TopicAndPartition对应的每一个TopicAndPartition和偏移量信息
+   * 
    */
   def getOffsets(group: String, topicPartitions: Seq[TopicAndPartition]): Map[TopicAndPartition, OffsetMetadataAndError] = {
     trace("Getting offsets %s for group %s.".format(topicPartitions, group))
 
+    //计算group所在分组
     val offsetsPartition = partitionFor(group)
 
     /**
@@ -248,9 +264,11 @@ class OffsetManager(val config: OffsetManagerConfig,
 
   /**
    * Asynchronously read the partition from the offsets topic and populate the cache
+   * 加载topic为__consumer_offsets的第offsetsPartition个partition,是异步的方式读取
    */
   def loadOffsetsFromLog(offsetsPartition: Int) {
 
+    //加载topic:__consumer_offsets的哪个partition
     val topicPartition = TopicAndPartition(OffsetManager.OffsetsTopicName, offsetsPartition)
 
     loadingPartitions synchronized {
@@ -262,13 +280,16 @@ class OffsetManager(val config: OffsetManagerConfig,
       }
     }
 
+    //加载topic为__consumer_offsets的第offsetsPartition个partition,是异步的方式读取
     def loadOffsets() {
+      //开始加载该partition
       info("Loading offsets from " + topicPartition)
 
       val startMs = SystemTime.milliseconds
       try {
         replicaManager.logManager.getLog(topicPartition) match {
           case Some(log) =>
+            //开始读取该partition数据
             var currOffset = log.logSegments.head.baseOffset
             val buffer = ByteBuffer.allocate(config.loadBufferSize)
             // loop breaks if leader changes at any time during the load, since getHighWatermark is -1
@@ -298,7 +319,7 @@ class OffsetManager(val config: OffsetManagerConfig,
               info("Finished loading offsets from %s in %d milliseconds."
                    .format(topicPartition, SystemTime.milliseconds - startMs))
           case None =>
-            warn("No log found for " + topicPartition)
+            warn("No log found for " + topicPartition) //没有找到该partition文件
         }
       }
       catch {
@@ -311,6 +332,7 @@ class OffsetManager(val config: OffsetManagerConfig,
     }
   }
 
+  //获取该topic:__consumer_offsets 对应的partition已经写入到了哪个偏移量了
   private def getHighWatermark(partitionId: Int): Long = {
     val partitionOpt = replicaManager.getPartition(OffsetManager.OffsetsTopicName, partitionId)
 
@@ -350,10 +372,12 @@ object OffsetManager {
 
   val OffsetsTopicName = "__consumer_offsets"
 
+  //包含key和value的定义文件
   private case class KeyAndValueSchemas(keySchema: Schema, valueSchema: Schema)
 
   private val CURRENT_OFFSET_SCHEMA_VERSION = 0.toShort
 
+  //key的定义,三个属性 String的group,String的topic,int的partition
   private val OFFSET_COMMIT_KEY_SCHEMA_V0 = new Schema(new Field("group", STRING),
                                                        new Field("topic", STRING),
                                                        new Field("partition", INT32))
@@ -361,6 +385,7 @@ object OffsetManager {
   private val KEY_TOPIC_FIELD = OFFSET_COMMIT_KEY_SCHEMA_V0.get("topic")
   private val KEY_PARTITION_FIELD = OFFSET_COMMIT_KEY_SCHEMA_V0.get("partition")
 
+  //value的定义,三个属性 long的offset,String的metadata,Long的timestamp
   private val OFFSET_COMMIT_VALUE_SCHEMA_V0 = new Schema(new Field("offset", INT64),
                                                          new Field("metadata", STRING, "Associated metadata.", ""),
                                                          new Field("timestamp", INT64))
@@ -373,6 +398,7 @@ object OffsetManager {
 
   private val CURRENT_SCHEMA = schemaFor(CURRENT_OFFSET_SCHEMA_VERSION)
 
+  //返回KeyAndValueSchemas对象,包含key和value的定义文件
   private def schemaFor(version: Int) = {
     val schemaOpt = OFFSET_SCHEMAS.get(version)
     schemaOpt match {
@@ -385,6 +411,8 @@ object OffsetManager {
    * Generates the key for offset commit message for given (group, topic, partition)
    *
    * @return key for offset commit message
+   * 用Schema定义字节数组,存储内容:
+   * group、topic、partition、versionId
    */
   def offsetCommitKey(group: String, topic: String, partition: Int, versionId: Short = 0): Array[Byte] = {
     val key = new Struct(CURRENT_SCHEMA.keySchema)
@@ -403,6 +431,8 @@ object OffsetManager {
    *
    * @param offsetAndMetadata consumer's current offset and metadata
    * @return payload for offset commit message
+   * 用Schema定义字节数组,存储内容:
+   * offset、metadata、timestamp、versionId
    */
   def offsetCommitValue(offsetAndMetadata: OffsetAndMetadata): Array[Byte] = {
     val value = new Struct(CURRENT_SCHEMA.valueSchema)
@@ -421,16 +451,22 @@ object OffsetManager {
    *
    * @param buffer input byte-buffer
    * @return an GroupTopicPartition object
+   * 从ByteBuffer流中根据version找到对应的schema,从而可以从流中获取group、topic、partition
+   * 
+   * 从ByteBuffer中获取key对象GroupTopicPartition
    */
   def readMessageKey(buffer: ByteBuffer): GroupTopicPartition = {
+    //从ByteBuffer流中根据version找到对应的schema
     val version = buffer.getShort()
     val keySchema = schemaFor(version).keySchema
     val key = keySchema.read(buffer).asInstanceOf[Struct]
 
+    //从而可以从流中获取group、topic、partition
     val group = key.get(KEY_GROUP_FIELD).asInstanceOf[String]
     val topic = key.get(KEY_TOPIC_FIELD).asInstanceOf[String]
     val partition = key.get(KEY_PARTITION_FIELD).asInstanceOf[Int]
 
+    //组装成返回值
     GroupTopicPartition(group, TopicAndPartition(topic, partition))
   }
 
@@ -439,19 +475,25 @@ object OffsetManager {
    *
    * @param buffer input byte-buffer
    * @return an offset-metadata object from the message
+   * 
+   * 从ByteBuffer流中根据version找到对应的schema,从而可以从流中获取offset、metadata、timestamp
+   * 
+   * 从ByteBuffer中获取key对象GroupTopicPartition
    */
   def readMessageValue(buffer: ByteBuffer): OffsetAndMetadata = {
     if(buffer == null) { // tombstone
       null
     } else {
+      
+      //从ByteBuffer流中根据version找到对应的schema
       val version = buffer.getShort()
       val valueSchema = schemaFor(version).valueSchema
       val value = valueSchema.read(buffer).asInstanceOf[Struct]
-
+      //从而可以从流中获取offset、metadata、timestamp
       val offset = value.get(VALUE_OFFSET_FIELD).asInstanceOf[Long]
       val metadata = value.get(VALUE_METADATA_FIELD).asInstanceOf[String]
       val timestamp = value.get(VALUE_TIMESTAMP_FIELD).asInstanceOf[Long]
-
+      //组装成返回值
       OffsetAndMetadata(offset, metadata, timestamp)
     }
   }
@@ -459,11 +501,14 @@ object OffsetManager {
   // Formatter for use with tools such as console consumer: Consumer should also set exclude.internal.topics to false.
   // (specify --formatter "kafka.server.OffsetManager\$OffsetsMessageFormatter" when consuming __consumer_offsets)
   class OffsetsMessageFormatter extends MessageFormatter {
+    
+      //从key和value字节数组中,反序列化成TopicAndPartition和OffsetAndMetadata对象,然后输出到PrintStream输出流中
+    //注意:两个对象在输出流中的分隔符是::
     def writeTo(key: Array[Byte], value: Array[Byte], output: PrintStream) {
       val formattedKey = if (key == null) "NULL" else OffsetManager.readMessageKey(ByteBuffer.wrap(key)).toString
       val formattedValue = if (value == null) "NULL" else OffsetManager.readMessageValue(ByteBuffer.wrap(value)).toString
       output.write(formattedKey.getBytes)
-      output.write("::".getBytes)
+      output.write("::".getBytes)//两个对象的分隔符
       output.write(formattedValue.getBytes)
       output.write("\n".getBytes)
     }

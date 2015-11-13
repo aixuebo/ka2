@@ -20,6 +20,10 @@ package kafka.utils
 import java.util.concurrent._
 import scala.math._
 
+/**
+ * 很多DelayQueue的例子。就拿上海的SB会来说明，很多国家地区的开馆时间不同。你很早就来到园区，然后急急忙忙地跑到一些心仪的馆区，发现有些还没开，你吃了闭门羹。 
+仔细研究DelayQueue，你会发现它其实就是一个PriorityQueue的封装（按照delay时间排序），里面的元素都实现了Delayed接口，相关操作需要判断延时时间是否到了
+ */
 class DelayedItem[T](val item: T, delay: Long, unit: TimeUnit) extends Delayed with Logging {
 
   val createdMs = SystemTime.milliseconds

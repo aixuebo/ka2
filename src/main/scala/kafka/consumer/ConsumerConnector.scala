@@ -23,6 +23,7 @@ import kafka.serializer._
 
 /**
  *  Main interface for consumer
+ *  消费者连接器主要接口
  */
 trait ConsumerConnector {
   
@@ -33,6 +34,7 @@ trait ConsumerConnector {
    *  @return a map of (topic, list of  KafkaStream) pairs.
    *          The number of items in the list is #streams. Each stream supports
    *          an iterator over message/metadata pairs.
+   * topicCountMap:key是要抓取的topic,value是需要几个消费者抓取该topic,即因为是一个Map结构,也就是说消费者可以一次抓取多个topic信息       
    */
   def createMessageStreams(topicCountMap: Map[String,Int]): Map[String, List[KafkaStream[Array[Byte],Array[Byte]]]]
   
@@ -45,6 +47,7 @@ trait ConsumerConnector {
    *  @return a map of (topic, list of  KafkaStream) pairs.
    *          The number of items in the list is #streams. Each stream supports
    *          an iterator over message/metadata pairs.
+   *  topicCountMap:key是要抓取的topic,value是需要几个消费者抓取该topic,即因为是一个Map结构,也就是说消费者可以一次抓取多个topic信息
    */
   def createMessageStreams[K,V](topicCountMap: Map[String,Int],
                                 keyDecoder: Decoder[K],
@@ -89,6 +92,7 @@ object Consumer extends Logging {
    *
    *  @param config  at the minimum, need to specify the groupid of the consumer and the zookeeper
    *                 connection string zookeeper.connect.
+   *  zookeeper版本的消费者连接器                
    */
   def create(config: ConsumerConfig): ConsumerConnector = {
     val consumerConnect = new ZookeeperConsumerConnector(config)
@@ -100,6 +104,7 @@ object Consumer extends Logging {
    *
    *  @param config  at the minimum, need to specify the groupid of the consumer and the zookeeper
    *                 connection string zookeeper.connect.
+   * java版本的消费者连接器               
    */
   def createJavaConsumerConnector(config: ConsumerConfig): kafka.javaapi.consumer.ConsumerConnector = {
     val consumerConnect = new kafka.javaapi.consumer.ZookeeperConsumerConnector(config)

@@ -52,7 +52,7 @@ object ConsumerConfig extends Config {
   val MirrorTopicsWhitelistProp = "mirror.topics.whitelist"
   val MirrorTopicsBlacklistProp = "mirror.topics.blacklist"
   val ExcludeInternalTopics = true
-  val DefaultPartitionAssignmentStrategy = "range" /* select between "range", and "roundrobin" */
+  val DefaultPartitionAssignmentStrategy = "range" /* select between "range", and "roundrobin" 消费者组向多个线程去分配partition的策略,参见PartitionAssignor类  */
   val MirrorConsumerNumThreadsProp = "mirror.consumer.numthreads"
   val DefaultClientId = ""
 
@@ -99,11 +99,15 @@ class ConsumerConfig private (val props: VerifiableProperties) extends ZKConfig(
     props.verify()
   }
 
-  /** a string that uniquely identifies a set of consumers within the same consumer group */
+  /** a string that uniquely identifies a set of consumers within the same consumer group
+   *  消费组名称 
+   **/
   val groupId = props.getString("group.id")
 
   /** consumer id: generated automatically if not set.
-   *  Set this explicitly for only testing purpose. */
+   *  Set this explicitly for only testing purpose.
+   *  消费者名称 
+   **/
   val consumerId: Option[String] = Option(props.getString("consumer.id", null))
 
   /** the socket timeout for network requests. Its value should be at least fetch.wait.max.ms. */
@@ -129,7 +133,7 @@ class ConsumerConfig private (val props: VerifiableProperties) extends ZKConfig(
   /** max number of message chunks buffered for consumption, each chunk can be up to fetch.message.max.bytes*/
   val queuedMaxMessages = props.getInt("queued.max.message.chunks", MaxQueuedChunks)
 
-  /** max number of retries during rebalance */
+  /** max number of retries during rebalance 最大重新平衡次数*/
   val rebalanceMaxRetries = props.getInt("rebalance.max.retries", MaxRebalanceRetries)
   
   /** the minimum amount of data the server should return for a fetch request. If insufficient data is available the request will block */
@@ -138,7 +142,9 @@ class ConsumerConfig private (val props: VerifiableProperties) extends ZKConfig(
   /** the maximum amount of time the server will block before answering the fetch request if there isn't sufficient data to immediately satisfy fetch.min.bytes */
   val fetchWaitMaxMs = props.getInt("fetch.wait.max.ms", MaxFetchWaitMs)
   
-  /** backoff time between retries during rebalance */
+  /** backoff time between retries during rebalance
+   *  每次zookeeperConsumerConnector类syncedRebalance方法执行后,休息时间 
+   **/
   val rebalanceBackoffMs = props.getInt("rebalance.backoff.ms", zkSyncTimeMs)
 
   /** backoff time to refresh the leader of a partition after it loses the current leader */
@@ -179,10 +185,14 @@ class ConsumerConfig private (val props: VerifiableProperties) extends ZKConfig(
    */
   val clientId = props.getString("client.id", groupId)
 
-  /** Whether messages from internal topics (such as offsets) should be exposed to the consumer. */
+  /** Whether messages from internal topics (such as offsets) should be exposed to the consumer. 
+   * true表示不能包含kafka内部自带的topic
+   **/
   val excludeInternalTopics = props.getBoolean("exclude.internal.topics", ExcludeInternalTopics)
 
-  /** Select a strategy for assigning partitions to consumer streams. Possible values: range, roundrobin */
+  /** Select a strategy for assigning partitions to consumer streams. Possible values: range, roundrobin
+   * 消费者组向多个线程去分配partition的策略,参见PartitionAssignor类  
+   **/
   val partitionAssignmentStrategy = props.getString("partition.assignment.strategy", DefaultPartitionAssignmentStrategy)
   
   validate(this)

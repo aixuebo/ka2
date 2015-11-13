@@ -249,10 +249,14 @@ class KafkaConfig private (val props: VerifiableProperties) extends ZKConfig(pro
   /* default replication factors for automatically created topics */
   val defaultReplicationFactor = props.getInt("default.replication.factor", 1)
 
-  /* If a follower hasn't sent any fetch requests during this time, the leader will remove the follower from isr */
+  /* If a follower hasn't sent any fetch requests during this time, the leader will remove the follower from isr 
+   * 表示最长时间不能从leader接收信息阀值,参见Partition的maybeShrinkIsr方法
+   **/
   val replicaLagTimeMaxMs = props.getLong("replica.lag.time.max.ms", 10000)
 
-  /* If the lag in messages between a leader and a follower exceeds this number, the leader will remove the follower from isr */
+  /* If the lag in messages between a leader and a follower exceeds this number, the leader will remove the follower from isr
+   * 表示从leader节点同步数据的最大字节长度阀值 ,参见Partition的maybeShrinkIsr方法
+   **/
   val replicaLagMaxMessages = props.getLong("replica.lag.max.messages", 4000)
 
   /* the socket timeout for network requests. Its value should be at least replica.fetch.wait.max.ms. */

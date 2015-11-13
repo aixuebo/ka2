@@ -45,7 +45,7 @@ object Defaults {
   val Compact = false
   val UncleanLeaderElectionEnable = true
   
-  val MinInSyncReplicas = 1
+  val MinInSyncReplicas = 1 //表示partition的最小同步数量,即达到该数量的备份数,就可以认为是成功备份了
 }
 
 /**
@@ -65,7 +65,8 @@ object Defaults {
  * @param compact Should old segments in this log be deleted or deduplicated?
  * @param uncleanLeaderElectionEnable Indicates whether unclean leader election is enabled; actually a controller-level property
  *                                    but included here for topic-specific configuration validation purposes
- * @param minInSyncReplicas If number of insync replicas drops below this number, we stop accepting writes with -1 (or all) required acks
+ * @param minInSyncReplicas If number of insync replicas drops below this number, we stop accepting writes with -1 (or all) required acks 
+ *        表示partition的最小同步数量,即达到该数量的备份数,就可以认为是成功备份了
  *
  */
 case class LogConfig(val segmentSize: Int = Defaults.SegmentSize,
@@ -130,7 +131,7 @@ object LogConfig {
   val CleanupPolicyProp = "cleanup.policy"
   val UncleanLeaderElectionEnableProp = "unclean.leader.election.enable"
   
-  val MinInSyncReplicasProp = "min.insync.replicas"
+  val MinInSyncReplicasProp = "min.insync.replicas" //表示partition的最小同步数量,即达到该数量的备份数,就可以认为是成功备份了
 
   val ConfigNames = Set(SegmentBytesProp,
                         SegmentMsProp,

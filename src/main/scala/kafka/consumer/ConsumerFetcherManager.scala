@@ -64,9 +64,9 @@ class ConsumerFetcherManager(private val consumerIdString: String,//标示消费
         }
 
         trace("Partitions without leader %s".format(noLeaderPartitionSet))
-        val brokers = getAllBrokersInCluster(zkClient)
-        val topicsMetadata = ClientUtils.fetchTopicMetadata(noLeaderPartitionSet.map(m => m.topic).toSet,
-                                                            brokers,
+        val brokers = getAllBrokersInCluster(zkClient) //获取/brokers/ids所有节点,并且过滤非有效的broker对象,获取当前集群中合法的broker的对象集合.并且已经排序后返回
+        val topicsMetadata = ClientUtils.fetchTopicMetadata(noLeaderPartitionSet.map(m => m.topic).toSet, //topic集合
+                                                            brokers, //所有节点集合
                                                             config.clientId,
                                                             config.socketTimeoutMs,
                                                             correlationId.getAndIncrement).topicsMetadata

@@ -148,6 +148,8 @@ a zipWithIndex // ((100,0), (200,1), (300,2))
    /**
     * Creates a blocking channel to the offset manager of the given group
     * 参数retryBackOffMs 表示每次尝试时,要休息多少毫秒
+    * 
+    * 先请求任意一台broker,然后获取该group所要访问的真正的数据broker,然后与真正的broker再建立连接
     */
    def channelToOffsetManager(group: String, zkClient: ZkClient, socketTimeoutMs: Int = 3000, retryBackOffMs: Int = 1000) = {
      //连接集群中随机选择任意一个broker节点,返回连接的socket

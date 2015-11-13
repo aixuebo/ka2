@@ -33,7 +33,8 @@ import java.util.concurrent.atomic.AtomicLong
  */
 
 /**
- * log参数是该节点上存储该partition的日志文件
+ * @log 参数是该节点上存储该partition的日志文件,如果该参数有值,说明该节点是本地机器
+ * @Replica 表示该Replica所在broker节点ID
  */
 class Replica(val brokerId: Int,
               val partition: Partition,
@@ -44,16 +45,18 @@ class Replica(val brokerId: Int,
   //一个高水印位置,在非leader备份中仅仅
   @volatile private[this] var highWatermarkMetadata: LogOffsetMetadata = new LogOffsetMetadata(initialHighWatermarkValue)
   // the log end offset value, kept in all replicas;
-  //日志最后的偏移量位置,保存哎所有的备份数据中
+  //日志最后的偏移量位置,保存在所有的备份数据中
   // for local replica it is the log's end offset, for remote replicas its value is only updated by follower fetch
   //对于本地的备份,该值表示日志的最后一个位置,对于远程的备份,该值表示抓取到了哪里
   @volatile private[this] var logEndOffsetMetadata: LogOffsetMetadata = LogOffsetMetadata.UnknownOffsetMetadata
   // the time when log offset is updated,偏移量被更新的时间
   private[this] val logEndOffsetUpdateTimeMsValue = new AtomicLong(time.milliseconds)
 
+  //该备份属于哪个topic-partition
   val topic = partition.topic
   val partitionId = partition.partitionId
 
+  //true说明本地节点有log日志关于该partition,即该partition在本地机器有Replica数据
   def isLocal: Boolean = {
     log match {
       case Some(l) => true
@@ -75,6 +78,7 @@ class Replica(val brokerId: Int,
   }
 
   //本地文件从log的信息中获取
+  //非本地文件的话,则获取已经获取到的日志偏移量
   def logEndOffset =
     if (isLocal)
       log.get.logEndOffsetMetadata
@@ -98,7 +102,7 @@ class Replica(val brokerId: Int,
 
   def highWatermark = highWatermarkMetadata
 
-  //从commit位置开始重新读数据
+  //将本地的Replica对象转换为leader对象
   def convertHWToLocalOffsetMetadata() = {
     if (isLocal) {
       highWatermarkMetadata = log.get.convertToOffsetMetadata(highWatermarkMetadata.messageOffset)
@@ -121,6 +125,7 @@ class Replica(val brokerId: Int,
   }
 
 
+  //topic-partition-在broker上的备份
   override def toString(): String = {
     val replicaString = new StringBuilder
     replicaString.append("ReplicaId: " + brokerId)

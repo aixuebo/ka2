@@ -21,12 +21,16 @@ import org.I0Itec.zkclient.ZkClient
 import kafka.common.TopicAndPartition
 import kafka.utils.{Utils, ZkUtils, Logging}
 
+/**
+ * 消费者组向多个线程去分配partition的策略
+ */
 trait PartitionAssignor {
 
   /**
    * Assigns partitions to consumer instances in a group.
    * @return An assignment map of partition to consumer thread. This only includes assignments for threads that belong
    *         to the given assignment-context's consumer.
+   *  分配,返回结果TopicAndPartition, ConsumerThreadId,表示哪些partition交给哪个线程去处理        
    */
   def assign(ctx: AssignmentContext): scala.collection.Map[TopicAndPartition, ConsumerThreadId]
 
@@ -39,18 +43,34 @@ object PartitionAssignor {
   }
 }
 
+/**
+ * @group 消费组
+ * @consumerId 消费者别名
+ * @excludeInternalTopics true表示不能包含kafka内部的topic
+ */
 class AssignmentContext(group: String, val consumerId: String, excludeInternalTopics: Boolean, zkClient: ZkClient) {
+  //获取该group的消费者ID 为每一个topic 已经分配的消费者线程集合
   val myTopicThreadIds: collection.Map[String, collection.Set[ConsumerThreadId]] = {
+    ///consumers/${group}/ids/${consumerId} 内容{"pattern":"white_list、black_list、static之一","subscription":{"${topic}":2,"${topic}":2}  }
     val myTopicCount = TopicCount.constructTopicCount(group, consumerId, zkClient, excludeInternalTopics)
     myTopicCount.getConsumerThreadIdsPerTopic
   }
 
+  /**
+   * myTopicThreadIds.keySet.toSeq 返回该消费group-consumerId 对应的所有topic集合
+   * 
+   * 该方法读取/brokers/topics/${topic}的内容{partitions:{"1":[11,12,14],"2":[11,16,19]} } 含义是该topic中有两个partition,分别是1和2,每一个partition在哪些brokerId存储
+   * 
+   * 然后 转换成key是topic,value是该topic有多少个partitionId集合组成的结果集返回
+   */
   val partitionsForTopic: collection.Map[String, Seq[Int]] =
     ZkUtils.getPartitionsForTopics(zkClient, myTopicThreadIds.keySet.toSeq)
 
+    //返回属于该消费者组的topic与消费者线程集合映射,key是topic,value是该topic所有的消费线程数组集合
   val consumersForTopic: collection.Map[String, List[ConsumerThreadId]] =
     ZkUtils.getConsumersPerTopic(zkClient, group, excludeInternalTopics)
 
+  //返回该group下的所有消费者名称集合 ,返回/consumers/${group}/ids/的子节点集合
   val consumers: Seq[String] = ZkUtils.getConsumersInGroup(zkClient, group).sorted
 }
 
@@ -69,10 +89,13 @@ class AssignmentContext(group: String, val consumerId: String, excludeInternalTo
 class RoundRobinAssignor() extends PartitionAssignor with Logging {
 
   def assign(ctx: AssignmentContext) = {
+    //返回结果TopicAndPartition, ConsumerThreadId,表示哪些partition交给哪个线程去处理        
     val partitionOwnershipDecision = collection.mutable.Map[TopicAndPartition, ConsumerThreadId]()
 
-    // check conditions (a) and (b)
+    // check conditions (a) and (b) 获取第一个topic和第一个topic对应的线程集合
     val (headTopic, headThreadIdSet) = (ctx.consumersForTopic.head._1, ctx.consumersForTopic.head._2.toSet)
+    
+    //返回属于该消费者组的topic与消费者线程集合映射,key是topic,value是该topic所有的消费线程数组集合
     ctx.consumersForTopic.foreach { case (topic, threadIds) =>
       val threadIdSet = threadIds.toSet
       require(threadIdSet == headThreadIdSet,

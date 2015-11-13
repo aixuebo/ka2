@@ -31,7 +31,7 @@ object ErrorMapping {
   val NoError : Short = 0//没有异常
   val OffsetOutOfRangeCode : Short = 1
   val InvalidMessageCode : Short = 2
-  val UnknownTopicOrPartitionCode : Short = 3
+  val UnknownTopicOrPartitionCode : Short = 3 //没有topic-partition信息
   val InvalidFetchSizeCode  : Short = 4
   val LeaderNotAvailableCode : Short = 5
   val NotLeaderForPartitionCode : Short = 6
@@ -42,13 +42,13 @@ object ErrorMapping {
   val StaleControllerEpochCode: Short = 11//controller的epoche版本号异常
   val OffsetMetadataTooLargeCode: Short = 12
   val StaleLeaderEpochCode: Short = 13
-  val OffsetsLoadInProgressCode: Short = 14
+  val OffsetsLoadInProgressCode: Short = 14//偏移量信息正在被加载,参见OffsetManager的getOffsets方法
   val ConsumerCoordinatorNotAvailableCode: Short = 15
   val NotCoordinatorForConsumerCode: Short = 16
   val InvalidTopicCode : Short = 17
   val MessageSetSizeTooLargeCode: Short = 18
   val NotEnoughReplicasCode : Short = 19
-  val NotEnoughReplicasAfterAppendCode: Short = 20
+  val NotEnoughReplicasAfterAppendCode: Short = 20 //说明没有足够多的partition备份节点去备份数据
 
   private val exceptionToCode =
     Map[Class[Throwable], Short](

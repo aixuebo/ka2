@@ -17,8 +17,10 @@
 
 package kafka.consumer
 
+//1.监听/brokers/topics节点,一旦有topic变更则触发TopicEventHandler事件,参见ZookeeperTopicEventWatcher
 trait TopicEventHandler[T] {
 
+  //@allTopics /brokers/topics节点最新的topic集合
   def handleTopicEvent(allTopics: Seq[T])
 
 }

@@ -614,6 +614,7 @@ class KafkaApis(val requestChannel: RequestChannel,
     // get metadata (and create the topic if necessary)
     val offsetsTopicMetadata = getTopicMetadata(Set(OffsetManager.OffsetsTopicName)).head
 
+    //默认返回值
     val errorResponse = ConsumerMetadataResponse(None, ErrorMapping.ConsumerCoordinatorNotAvailableCode, consumerMetadataRequest.correlationId)
 
     val response =

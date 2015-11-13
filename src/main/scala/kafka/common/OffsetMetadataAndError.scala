@@ -17,6 +17,7 @@
 
 package kafka.common
 
+//记录偏移量和一个String的描述信息以及错误编码
 case class OffsetAndMetadata(offset: Long,
                              metadata: String = OffsetAndMetadata.NoMetadata,
                              var timestamp: Long = -1L) {

@@ -52,7 +52,7 @@ object ZkUtils extends Logging {
      *3./consumers/${group}/ids/消费者自定义ID名称,该意义是可以知道该group下面的消费者多少个,如果挂了一个消费者,或者挂了一个broker,可以动态调节消费者消费哪些topic-partition,内容如下:
        {
       “version”:1,
-      “subscription”:{“test_kafka”:3},//订阅topic列表
+      “subscription”:{“test_kafka”:3},//订阅topic列表,即topic:test_kafka 在group中要有3个消费者线程去读取
       “topic名称”: consumer中topic消费者线程数[与队列的分区数量有关]
       “pattern”:”static”,
       “timestamp”:”1416810012297″
@@ -849,22 +849,23 @@ controller_epoch节点的值是一个数字,kafka集群中第一个broker第一�
     zkClient.delete(brokerPartTopicPath)
   }
 
-  //返回该group下的所有消费者名称集合
+  //返回该group下的所有消费者名称集合 ,返回/consumers/${group}/ids/的子节点集合
   def getConsumersInGroup(zkClient: ZkClient, group: String): Seq[String] = {
     val dirs = new ZKGroupDirs(group)
     getChildren(zkClient, dirs.consumerRegistryDir)
   }
 
-  //返回属于该消费者组的topic与消费者集合映射
+  //返回属于该消费者组的topic与消费者线程集合映射
   def getConsumersPerTopic(zkClient: ZkClient, group: String, excludeInternalTopics: Boolean) : mutable.Map[String, List[ConsumerThreadId]] = {
     val dirs = new ZKGroupDirs(group)
-    //获取该group下所有的消费者
+    //获取该group下所有的消费者,读取/consumers/${group}/ids的子节点集合,即该消费组里面的消费者集合
     val consumers = getChildrenParentMayNotExist(zkClient, dirs.consumerRegistryDir)
     
     //key是topic,value是该topic消费的ConsumerThreadId集合
     val consumersPerTopicMap = new mutable.HashMap[String, List[ConsumerThreadId]]
     for (consumer <- consumers) {//循环每一个消费者
       //获取该消费者可以消费哪些topic,以及有多少个线程可以去消费该topic
+      ///consumers/${group}/ids/${consumerId} 内容{"pattern":"white_list、black_list、static之一","subscription":{"${topic}":2,"${topic}":2}  }
       val topicCount = TopicCount.constructTopicCount(group, consumer, zkClient, excludeInternalTopics)
       //循环每一个元组,即topic、消费该topic个多少个partition
       for ((topic, consumerThreadIdSet) <- topicCount.getConsumerThreadIdsPerTopic) {

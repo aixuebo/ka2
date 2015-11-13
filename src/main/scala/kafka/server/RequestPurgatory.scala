@@ -31,8 +31,11 @@ import com.yammer.metrics.core.Gauge
 
 /**
  * A request whose processing needs to be delayed for at most the given delayMs
+ * 整个处理需要被延迟多少秒后再执行一个请求 
  * The associated keys are used for bookeeping, and represent the "trigger" that causes this request to check if it is satisfied,
+ * 请求可以附加任意一个集合key,当 satisfied是true时,就可以进行触发
  * for example a key could be a (topic, partition) pair.
+ * 可以按照 RequestChannel.Request按照delayMs排序后
  */
 class DelayedRequest(val keys: Seq[Any], val request: RequestChannel.Request, delayMs: Long) extends DelayedItem[RequestChannel.Request](request, delayMs) {
   val satisfied = new AtomicBoolean(false)
@@ -63,7 +66,8 @@ class DelayedRequest(val keys: Seq[Any], val request: RequestChannel.Request, de
  * The second function is
  *   def expire(delayed: T)
  * this function handles delayed requests that have hit their time limit without being satisfied.
- *
+ * 
+ * 泛型接收DelayedRequest的子类
  */
 abstract class RequestPurgatory[T <: DelayedRequest](brokerId: Int = 0, purgeInterval: Int = 1000)
         extends Logging with KafkaMetricsGroup {
@@ -191,6 +195,7 @@ abstract class RequestPurgatory[T <: DelayedRequest](brokerId: Int = 0, purgeInt
   /**
    * A linked list of DelayedRequests watching some key with some associated
    * bookkeeping logic.
+   * 存储一个DelayedRequests子类的集合
    */
   private class Watchers {
     private val requests = new util.LinkedList[T]
@@ -210,7 +215,8 @@ abstract class RequestPurgatory[T <: DelayedRequest](brokerId: Int = 0, purgeInt
       return true
     }
 
-    // traverse the list and purge satisfied elements
+    // traverse the list and purge satisfied elements穿过list集合,清除satisfied=true的元素
+    //将curr.satisfied=true的移除掉,返回移除了多少个元素
     def purgeSatisfied(): Int = {
       synchronized {
         val iter = requests.iterator()
@@ -226,7 +232,7 @@ abstract class RequestPurgatory[T <: DelayedRequest](brokerId: Int = 0, purgeInt
       }
     }
 
-    // traverse the list and try to satisfy watched elements
+    // traverse the list and try to satisfy watched elements 穿过list集合,返回satisfied=false的元素集合,并且移除satisfied=true的元素集合
     def collectSatisfiedRequests(): Seq[T] = {
       val response = new mutable.ArrayBuffer[T]
       synchronized {
@@ -262,6 +268,7 @@ abstract class RequestPurgatory[T <: DelayedRequest](brokerId: Int = 0, purgeInt
     private val running = new AtomicBoolean(true)
     private val shutdownLatch = new CountDownLatch(1)
 
+    //优先队列
     private val delayedQueue = new DelayQueue[T]
 
     def delayed() = delayedQueue.size()
@@ -270,7 +277,7 @@ abstract class RequestPurgatory[T <: DelayedRequest](brokerId: Int = 0, purgeInt
     def run() {
       while(running.get) {
         try {
-          val curr = pollExpired()
+          val curr = pollExpired() //获取一个元素
           if (curr != null) {
             curr synchronized {
               expire(curr)
@@ -311,6 +318,7 @@ abstract class RequestPurgatory[T <: DelayedRequest](brokerId: Int = 0, purgeInt
 
     /**
      * Get the next expired event
+     * 获取一个元素
      */
     private def pollExpired(): T = {
       while(true) {

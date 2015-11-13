@@ -32,21 +32,30 @@ import kafka.controller.KafkaController.StateChangeLogger
  *  每一个partition缓存的状态对象
  *  该缓存状态信息通过controller的UpdateMetadataRequest请求更新
  *  每一个节点保持一样的缓存,更新是异步的
+ *  
+ *  
+ *  缓存
+ *  1.topic-partition-PartitionStateInfo映射关系
+ *  2.缓存活着的broker节点信息
  */
 private[server] class MetadataCache {
+  //key是topic,value是Map,key是partitionId,value是PartitionStateInfo
   private val cache: mutable.Map[String, mutable.Map[Int, PartitionStateInfo]] =
     new mutable.HashMap[String, mutable.Map[Int, PartitionStateInfo]]()
-  private var aliveBrokers: Map[Int, Broker] = Map()
+  private var aliveBrokers: Map[Int, Broker] = Map() //活着的节点集合
   private val partitionMetadataLock = new ReentrantReadWriteLock()
 
+  //返回值 ListBuffer[TopicMetadata],根据参数topic集合,返回该topic的信息内容
+  //如果参数为空,则表示返回所有的topic信息
   def getTopicMetadata(topics: Set[String]) = {
     val isAllTopics = topics.isEmpty//是否参数集合为空
     val topicsRequested = if(isAllTopics) cache.keySet else topics//寻找本次请求的topic集合
-    val topicResponses: mutable.ListBuffer[TopicMetadata] = new mutable.ListBuffer[TopicMetadata]
+    val topicResponses: mutable.ListBuffer[TopicMetadata] = new mutable.ListBuffer[TopicMetadata] //返回值
+    
     inReadLock(partitionMetadataLock) {
-      for (topic <- topicsRequested) {
+      for (topic <- topicsRequested) {//循环每一个topic
         if (isAllTopics || cache.contains(topic)) {
-          val partitionStateInfos = cache(topic)
+          val partitionStateInfos = cache(topic) //返回值 Map[Int, PartitionStateInfo]
           val partitionMetadata = partitionStateInfos.map {
             case (partitionId, partitionState) =>
               val replicas = partitionState.allReplicas
@@ -83,12 +92,14 @@ private[server] class MetadataCache {
     topicResponses
   }
 
+  //获取活着的节点Broker集合
   def getAliveBrokers = {
     inReadLock(partitionMetadataLock) {
       aliveBrokers.values.toSeq
     }
   }
 
+  //添加topic-partition-PartitionStateInfo映射关系
   def addOrUpdatePartitionInfo(topic: String,
                                partitionId: Int,
                                stateInfo: PartitionStateInfo) {
@@ -104,6 +115,7 @@ private[server] class MetadataCache {
     }
   }
 
+  //根据topic-partition返回缓存的PartitionStateInfo对象
   def getPartitionInfo(topic: String, partitionId: Int): Option[PartitionStateInfo] = {
     inReadLock(partitionMetadataLock) {
       cache.get(topic) match {
@@ -113,20 +125,26 @@ private[server] class MetadataCache {
     }
   }
 
+  //更新缓存
   def updateCache(updateMetadataRequest: UpdateMetadataRequest,
                   brokerId: Int,
                   stateChangeLogger: StateChangeLogger) {
     inWriteLock(partitionMetadataLock) {
+      //更新最新的活的节点信息
       aliveBrokers = updateMetadataRequest.aliveBrokers.map(b => (b.id, b)).toMap
+      
+      //更新topic-partition-PartitionStateInfo映射关系
       updateMetadataRequest.partitionStateInfos.foreach { case(tp, info) =>
-        if (info.leaderIsrAndControllerEpoch.leaderAndIsr.leader == LeaderAndIsr.LeaderDuringDelete) {
-          removePartitionInfo(tp.topic, tp.partition)
+        if (info.leaderIsrAndControllerEpoch.leaderAndIsr.leader == LeaderAndIsr.LeaderDuringDelete) {//表示该leader正在删除中
+          removePartitionInfo(tp.topic, tp.partition) //移除该映射
           stateChangeLogger.trace(("Broker %d deleted partition %s from metadata cache in response to UpdateMetadata request " +
             "sent by controller %d epoch %d with correlation id %d")
             .format(brokerId, tp, updateMetadataRequest.controllerId,
             updateMetadataRequest.controllerEpoch, updateMetadataRequest.correlationId))
         } else {
+          //添加三者的映射关系topic-partition-PartitionStateInfo
           addOrUpdatePartitionInfo(tp.topic, tp.partition, info)
+          //打印日志
           stateChangeLogger.trace(("Broker %d cached leader info %s for partition %s in response to UpdateMetadata request " +
             "sent by controller %d epoch %d with correlation id %d")
             .format(brokerId, info, tp, updateMetadataRequest.controllerId,
@@ -136,6 +154,7 @@ private[server] class MetadataCache {
     }
   }
 
+  //移除topic-partition映射关系
   private def removePartitionInfo(topic: String, partitionId: Int) = {
     cache.get(topic) match {
       case Some(infos) => {

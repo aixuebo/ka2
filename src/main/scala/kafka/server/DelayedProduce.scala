@@ -80,6 +80,7 @@ class DelayedProduce(override val keys: Seq[TopicAndPartition],
         .format(topicAndPartition, fetchPartitionStatus.acksPending))
       // skip those partitions that have already been satisfied
       if (fetchPartitionStatus.acksPending) {
+        //通过topic-partitionId获取Partition对象
         val partitionOpt = replicaManager.getPartition(topicAndPartition.topic, topicAndPartition.partition)
         val (hasEnough, errorCode) = partitionOpt match {
           case Some(partition) =>
@@ -87,7 +88,7 @@ class DelayedProduce(override val keys: Seq[TopicAndPartition],
               fetchPartitionStatus.requiredOffset,
               produce.requiredAcks)
           case None =>
-            (false, ErrorMapping.UnknownTopicOrPartitionCode)
+            (false, ErrorMapping.UnknownTopicOrPartitionCode) //没有topic-partition信息
         }
         if (errorCode != ErrorMapping.NoError) {
           fetchPartitionStatus.acksPending = false

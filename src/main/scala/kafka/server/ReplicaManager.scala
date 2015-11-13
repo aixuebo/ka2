@@ -53,8 +53,7 @@ class ReplicaManager(val config: KafkaConfig,
                      scheduler: Scheduler,
                      val logManager: LogManager,
                      val isShuttingDown: AtomicBoolean ) extends Logging with KafkaMetricsGroup {
-  /* epoch of the controller that last changed the leader */
-  @volatile var controllerEpoch: Int = KafkaController.InitialControllerEpoch - 1
+  @volatile var controllerEpoch: Int = KafkaController.InitialControllerEpoch - 1 /* epoch of the controller that last changed the leader */
   private val localBrokerId = config.brokerId
   //key是topic-partition组成,value是组成的Partition对象,该对象管理这副本备份信息
   private val allPartitions = new Pool[(String, Int), Partition]
@@ -65,6 +64,7 @@ class ReplicaManager(val config: KafkaConfig,
   private val highWatermarkCheckPointThreadStarted = new AtomicBoolean(false)
   //在每一个log磁盘下,创建一个OffsetCheckpoint对象,文件名是replication-offset-checkpoint
   //key是log磁盘根目录,value是replication-offset-checkpoint文件
+  
   val highWatermarkCheckpoints = config.logDirs.map(dir => (new File(dir).getAbsolutePath, new OffsetCheckpoint(new File(dir, ReplicaManager.HighWatermarkFilename)))).toMap
   private var hwThreadInitialized = false
   this.logIdent = "[Replica Manager on Broker " + localBrokerId + "]: "
@@ -295,8 +295,9 @@ class ReplicaManager(val config: KafkaConfig,
 
   /**
    * Read from a single topic/partition at the given offset upto maxSize bytes
-   * 从单独一个topic/partition文件中读取数据,从给定offset开始读取,最多读取maxSize个
-   * 参数fromReplicaId 表示从哪个topic/partition读取数据,因为我们topic/partition可能会有多个备份数据
+   * 从单独一个topic/partition文件的leader中读取数据,从给定offset开始读取,最多读取maxSize个
+   * 
+   * 返回FetchDataInfo, Long
    */
   private def readMessageSet(topic: String,
                              partition: Int,
@@ -325,9 +326,10 @@ class ReplicaManager(val config: KafkaConfig,
     (fetchInfo, localReplica.highWatermark.messageOffset)
   }
 
+  //处理更新元数据请求
   def maybeUpdateMetadataCache(updateMetadataRequest: UpdateMetadataRequest, metadataCache: MetadataCache) {
     replicaStateChangeLock synchronized {
-      if(updateMetadataRequest.controllerEpoch < controllerEpoch) {
+      if(updateMetadataRequest.controllerEpoch < controllerEpoch) {//校验controller选举次数异常
         val stateControllerEpochErrorMessage = ("Broker %d received update metadata request with correlation id %d from an " +
           "old controller %d with epoch %d. Latest known controller epoch is %d").format(localBrokerId,
           updateMetadataRequest.correlationId, updateMetadataRequest.controllerId, updateMetadataRequest.controllerEpoch,
@@ -580,11 +582,21 @@ class ReplicaManager(val config: KafkaConfig,
     }
   }
 
+   /**
+   * 评估卡住的同步对象集合
+   * 所谓卡住的原因是:1.长时间没有从leader收到同步信息 2.收到的leader的同步信息数据较少
+   * @config.replicaLagTimeMaxMs 表示最长时间不能从leader接收信息阀值
+   * @config.replicaLagMaxMessages 表示从leader节点同步数据的最大字节长度阀值
+   * 
+   * 该方法表示收缩同步集合,因为有一些同步节点有问题,导致不再向该集合发送同步数据
+   */
   private def maybeShrinkIsr(): Unit = {
     trace("Evaluating ISR list of partitions to see which replicas can be removed from the ISR")
     allPartitions.values.foreach(partition => partition.maybeShrinkIsr(config.replicaLagTimeMaxMs, config.replicaLagMaxMessages))
   }
 
+  //follow节点抓取partition的Replica数据后.更新文件偏移量信息LogOffsetMetadata
+  //抓取的是topic-parition在replicaId节点上更新的数据量
   def updateReplicaLEOAndPartitionHW(topic: String, partitionId: Int, replicaId: Int, offset: LogOffsetMetadata) = {
     getPartition(topic, partitionId) match {
       case Some(partition) =>
@@ -611,13 +623,18 @@ class ReplicaManager(val config: KafkaConfig,
   }
   /**
    * Flushes the highwatermark value for all partitions to the highwatermark file
+   * 向replication-offset-checkpoint文件写入每一个topic-paritition对应的处理过的文件偏移量
    */
   def checkpointHighWatermarks() {
+    //返回本地节点的所有replica备份对象
     val replicas = allPartitions.values.map(_.getReplica(config.brokerId)).collect{case Some(replica) => replica}
+    // Map[String, Iterable[Replica]] 按照log的根目录分组,key是log根目录,value是该目录下的所有Replica对象
     val replicasByDir = replicas.filter(_.log.isDefined).groupBy(_.log.get.dir.getParentFile.getAbsolutePath)
     for((dir, reps) <- replicasByDir) {
+      //Map[TopicAndPartition, Long] key是TopicAndPartition对象,value是该partiton的messageOffset
       val hwms = reps.map(r => (new TopicAndPartition(r) -> r.highWatermark.messageOffset)).toMap
       try {
+        //向replication-offset-checkpoint文件写入key是TopicAndPartition对象,value是该partiton的messageOffset信息
         highWatermarkCheckpoints(dir).write(hwms)
       } catch {
         case e: IOException =>

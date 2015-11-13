@@ -55,6 +55,11 @@ object UpdateMetadataRequest {
   }
 }
 
+/**
+ * @controllerId 表示controller的brokerId
+ * @partitionStateInfos 表示topic-partition-PartitionStateInfo映射关系
+ * @aliveBrokers 当前活着的broker节点信息
+ */
 case class UpdateMetadataRequest (versionId: Short,
                                   correlationId: Int,
                                   clientId: String,

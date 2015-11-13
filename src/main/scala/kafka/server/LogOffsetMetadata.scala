@@ -58,7 +58,7 @@ case class LogOffsetMetadata(messageOffset: Long,
     this.segmentBaseOffset == that.segmentBaseOffset
   }
 
-  // check if this offset is before the given offset
+  // check if this offset is before the given offset,true:当前的 比 参数小
   def precedes(that: LogOffsetMetadata): Boolean = this.messageOffset < that.messageOffset
 
   // compute the number of messages between this offset to the given offset

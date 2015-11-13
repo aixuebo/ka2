@@ -36,6 +36,7 @@ class OffsetCheckpoint(val file: File) extends Logging {
   new File(file + ".tmp").delete() // try to delete any existing temp files for cleanliness
   file.createNewFile() // in case the file doesn't exist
 
+  //向文件中写入该TopicAndPartition对应的文件偏移量
   def write(offsets: Map[TopicAndPartition, Long]) {
     lock synchronized {
       

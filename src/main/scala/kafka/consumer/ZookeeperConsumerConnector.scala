@@ -43,7 +43,7 @@ import scala.collection._
 
 /**
  * This class handles the consumers interaction with zookeeper
- *
+ * 这个类出来消费者与zookeeper之间的交互
  * Directories:
  * 1. Consumer id registry:
  * /consumers/[group_id]/ids[consumer_id] -> topic1,...topicN
@@ -75,6 +75,7 @@ import scala.collection._
  * /consumers/[group_id]/offsets/[topic]/[broker_id-partition_id] --> offset_counter_value
  * Each consumer tracks the offset of the latest message consumed for each partition.
  *
+ * 
  */
 private[kafka] object ZookeeperConsumerConnector {
   val shutdownCommand: FetchedDataChunk = new FetchedDataChunk(null, null, -1L)
@@ -221,17 +222,29 @@ private[kafka] class ZookeeperConsumerConnector(val config: ConsumerConfig,
     }
   }
 
+  /**
+   * topicCountMap:key是要抓取的topic,value是需要几个消费者抓取该topic,即因为是一个Map结构,也就是说消费者可以一次抓取多个topic信息
+   */
   def consume[K, V](topicCountMap: scala.collection.Map[String,Int], keyDecoder: Decoder[K], valueDecoder: Decoder[V])
       : Map[String,List[KafkaStream[K,V]]] = {
     debug("entering consume ")
     if (topicCountMap == null)
       throw new RuntimeException("topicCountMap is null")
 
-    val topicCount = TopicCount.constructTopicCount(consumerIdString, topicCountMap)
+    val topicCount = TopicCount.constructTopicCount(consumerIdString, topicCountMap) //StaticTopicCount
 
+    //返回HashMap[String, Set[ConsumerThreadId]] key是topic,value是该topic上多个线程ID可以读取topic信息
     val topicThreadIds = topicCount.getConsumerThreadIdsPerTopic
 
     // make a list of (queue,stream) pairs, one pair for each threadId
+    /**
+     * 返回值List[(LinkedBlockingQueue[FetchedDataChunk], KafkaStream[K, V])],一个元组集合,每一个元组由(LinkedBlockingQueue[FetchedDataChunk], KafkaStream[K, V])组成,每一个元组表示一个线程,按照顺序排列
+     * LinkedBlockingQueue[FetchedDataChunk] 表示存储该topic的每一个线程对应的队列
+     * KafkaStream[K, V] 表示存储该topic的每一个线程对应的流
+     * 
+     * eg:读取topic:test1,2个线程,读取topic:test2,3个线程
+     * 最终返回List包含5个元组
+     */
     val queuesAndStreams = topicThreadIds.values.map(threadIdSet =>
       threadIdSet.map(_ => {
         val queue =  new LinkedBlockingQueue[FetchedDataChunk](config.queuedMaxMessages)
@@ -251,6 +264,17 @@ private[kafka] class ZookeeperConsumerConnector(val config: ConsumerConfig,
   // this API is used by unit tests only
   def getTopicRegistry: Pool[String, Pool[Int, PartitionTopicInfo]] = topicRegistry
 
+  /**
+   * 在/consumers/${group}/ids/consumerIdString节点上存储以下内容
+   * 存储内容:
+   *        {
+      “version”:1,
+      “subscription”:{“test_kafka”:3},//订阅topic列表
+      “topic名称”: consumer中topic消费者线程数[与队列的分区数量有关]
+      “pattern”:”static”,
+      “timestamp”:”1416810012297″
+      } 
+   */
   private def registerConsumerInZK(dirs: ZKGroupDirs, consumerIdString: String, topicCount: TopicCount) {
     info("begin registering consumer " + consumerIdString + " in ZK")
     val timestamp = SystemTime.milliseconds.toString
@@ -519,10 +543,16 @@ private[kafka] class ZookeeperConsumerConnector(val config: ConsumerConfig,
     }
   }
 
+  /**
+   * 消费者group要监控zookeeper,保证在有变化的时候,可以及时更改
+   * @group 消费者组名称
+   * @consumerIdString 消费者名称
+   */
   class ZKRebalancerListener(val group: String, val consumerIdString: String,
                              val kafkaMessageAndMetadataStreams: mutable.Map[String,List[KafkaStream[_,_]]])
     extends IZkChildListener {
 
+    //创建消费者组向多个线程去分配partition的策略
     private val partitionAssignor = PartitionAssignor.createInstance(config.partitionAssignmentStrategy)
 
     private var isWatcherTriggered = false
@@ -610,7 +640,7 @@ private[kafka] class ZookeeperConsumerConnector(val config: ConsumerConfig,
               var done = false
               var cluster: Cluster = null
               try {
-                cluster = getCluster(zkClient)
+                cluster = getCluster(zkClient)//读取所有brokers节点,并且创建Broker节点对象
                 done = rebalance(cluster)
               } catch {
                 case e: Throwable =>
@@ -625,7 +655,7 @@ private[kafka] class ZookeeperConsumerConnector(val config: ConsumerConfig,
                 return
               } else {
                 /* Here the cache is at a risk of being stale. To take future rebalancing decisions correctly, we should
-                 * clear the cache */
+                 * clear the cache 重新平衡失败,在下一次重新平衡操作前要清空缓存*/
                 info("Rebalancing attempt failed. Clearing the cache before the next rebalancing operation is triggered")
               }
               // stop all fetchers and clear all the queues to avoid data duplication
@@ -642,6 +672,7 @@ private[kafka] class ZookeeperConsumerConnector(val config: ConsumerConfig,
     private def rebalance(cluster: Cluster): Boolean = {
       val myTopicThreadIdsMap = TopicCount.constructTopicCount(
         group, consumerIdString, zkClient, config.excludeInternalTopics).getConsumerThreadIdsPerTopic
+        //获取/brokers/ids所有节点,并且过滤非有效的broker对象,获取当前集群中合法的broker的对象集合.并且已经排序后返回
       val brokers = getAllBrokersInCluster(zkClient)
       if (brokers.size == 0) {
         // This can happen in a rare case when there are no brokers available in the cluster when the consumer is started.
@@ -823,6 +854,9 @@ private[kafka] class ZookeeperConsumerConnector(val config: ConsumerConfig,
     }
   }
 
+  /**
+   * @queuesAndStreams 表示一个元组队列,没一个元组分别对应一个topic的一个线程
+   */
   private def reinitializeConsumer[K,V](
       topicCount: TopicCount,
       queuesAndStreams: List[(LinkedBlockingQueue[FetchedDataChunk],KafkaStream[K,V])]) {
