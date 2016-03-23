@@ -52,13 +52,13 @@ class LogManager(val logDirs: Array[File],//目录集合,可以处理目录存�
                  val brokerState: BrokerState,
                  private val time: Time) extends Logging {
   val RecoveryPointCheckpointFile = "recovery-point-offset-checkpoint"
-  val LockFile = ".lock"
+  val LockFile = ".lock"//为每一个目录创建一个该文件,作为锁文件
   val InitialTaskDelayMs = 30*1000
   
   
   private val logCreationOrDeletionLock = new Object//锁对象,用于创建或者删除一个topic-partition对应的LOG文件时,使用该锁
   
-  //每一个topic-partition对应一个该LOG对象
+  //每一个topic-partition对应一个该LOG对象,因为每一个topic-partition对应的不同的存储文件
   private val logs = new Pool[TopicAndPartition, Log]()
 
   //校验参数必须都是目录、并且有可读权限、并且如果目录不存在,则创建该目录
@@ -90,13 +90,13 @@ class LogManager(val logDirs: Array[File],//目录集合,可以处理目录存�
     if(dirs.map(_.getCanonicalPath).toSet.size < dirs.size)//确保目录集合中所有的目录都是唯一的,没有重复的目录
       throw new KafkaException("Duplicate log directory found: " + logDirs.mkString(", "))
     for(dir <- dirs) {
-      if(!dir.exists) {
+      if(!dir.exists) {//如果目录不存在,则创建该目录
         info("Log directory '" + dir.getAbsolutePath + "' not found, creating it.")
         val created = dir.mkdirs()
         if(!created)
           throw new KafkaException("Failed to create data directory " + dir.getAbsolutePath)
       }
-      if(!dir.isDirectory || !dir.canRead)
+      if(!dir.isDirectory || !dir.canRead)//必须是目录,并且可读权限的目录
         throw new KafkaException(dir.getAbsolutePath + " is not a readable log directory.")
     }
   }

@@ -28,10 +28,11 @@ import kafka.utils.Utils._
 import java.util.concurrent.TimeUnit
 import kafka.common.{LogCleaningAbortedException, TopicAndPartition}
 
+//日志清理的状态
 private[log] sealed trait LogCleaningState
-private[log] case object LogCleaningInProgress extends LogCleaningState
-private[log] case object LogCleaningAborted extends LogCleaningState
-private[log] case object LogCleaningPaused extends LogCleaningState
+private[log] case object LogCleaningInProgress extends LogCleaningState //正在清理中
+private[log] case object LogCleaningAborted extends LogCleaningState//清理终止了
+private[log] case object LogCleaningPaused extends LogCleaningState//清理暂停了
 
 /**
  *  Manage the state of each partition being cleaned.
@@ -50,10 +51,13 @@ private[log] class LogCleanerManager(val logDirs: Array[File], val logs: Pool[To
   
   /* the offset checkpoints holding the last cleaned point for each log 
    * 每一个file对应一个 OffsetCheckpoint对象,即对应一个cleaner-offset-checkpoint文件
+   * 即每一个文件夹下都记录了一个该文件夹下存储的topic-partition的偏移量
    **/
   private val checkpoints = logDirs.map(dir => (dir, new OffsetCheckpoint(new File(dir, offsetCheckpointFile)))).toMap
 
-  /* the set of logs currently being cleaned */
+  /* the set of logs currently being cleaned 
+   * 每一个topic-partition对应的进度
+   **/
   private val inProgress = mutable.HashMap[TopicAndPartition, LogCleaningState]()
 
   /* a global lock used to control all access to the in-progress set and the offset checkpoints */
@@ -81,17 +85,18 @@ private[log] class LogCleanerManager(val logDirs: Array[File], val logs: Pool[To
     */
   def grabFilthiestLog(): Option[LogToClean] = {
     inLock(lock) {
-      val lastClean = allCleanerCheckpoints()
+      val lastClean = allCleanerCheckpoints() //读取清理到什么偏移量了
+      //转换成LogToClean集合
       val dirtyLogs = logs.filter(l => l._2.config.compact)          // skip any logs marked for delete rather than dedupe
                           .filterNot(l => inProgress.contains(l._1)) // skip any logs already in-progress
                           .map(l => LogToClean(l._1, l._2,           // create a LogToClean instance for each
                                                lastClean.getOrElse(l._1, l._2.logSegments.head.baseOffset)))
-                          .filter(l => l.totalBytes > 0)             // skip any empty logs
-      this.dirtiestLogCleanableRatio = if (!dirtyLogs.isEmpty) dirtyLogs.max.cleanableRatio else 0
+                          .filter(l => l.totalBytes > 0)             // skip any empty logs 跳过空的日志
+      this.dirtiestLogCleanableRatio = if (!dirtyLogs.isEmpty) dirtyLogs.max.cleanableRatio else 0 //获取LogToClean中最大的cleanableRatio
       val cleanableLogs = dirtyLogs.filter(l => l.cleanableRatio > l.log.config.minCleanableRatio) // and must meet the minimum threshold for dirty byte ratio
       if(cleanableLogs.isEmpty) {
         None
-      } else {
+      } else {//设置正在处理删除日志中
         val filthiest = cleanableLogs.max
         inProgress.put(filthiest.topicPartition, LogCleaningInProgress)
         Some(filthiest)
@@ -166,6 +171,7 @@ private[log] class LogCleanerManager(val logDirs: Array[File], val logs: Pool[To
 
   /**
    *  Check if the cleaning for a partition is in a particular state. The caller is expected to hold lock while making the call.
+   *  true表示topicAndPartition在清理中,并且状态为expectedState
    */
   def isCleaningInState(topicAndPartition: TopicAndPartition, expectedState: LogCleaningState): Boolean = {
     inProgress.get(topicAndPartition) match {
@@ -188,6 +194,7 @@ private[log] class LogCleanerManager(val logDirs: Array[File], val logs: Pool[To
     }
   }
 
+  //添加映射信息
   def updateCheckpoints(dataDir: File, update: Option[(TopicAndPartition,Long)]) {
     inLock(lock) {
       val checkpoint = checkpoints(dataDir)

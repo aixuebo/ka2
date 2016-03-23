@@ -82,7 +82,9 @@ class LogCleaner(val config: CleanerConfig,
                                         "bytes",
                                         time = time)
   
-  /* the threads */
+  /* the threads 
+   * 创建多个线程去执行清理工作
+   **/
   private val cleaners = (0 until config.numThreads).map(new CleanerThread(_))
   
   /* a metric to track the maximum utilization of any thread's buffer in the last cleaning */
@@ -107,6 +109,7 @@ class LogCleaner(val config: CleanerConfig,
   
   /**
    * Start the background cleaning
+   * 打开清理日志的多个线程
    */
   def startup() {
     info("Starting the log cleaner")
@@ -115,6 +118,7 @@ class LogCleaner(val config: CleanerConfig,
   
   /**
    * Stop the background cleaning
+   * 关闭多个清理日志的线程
    */
   def shutdown() {
     info("Shutting down the log cleaner.")
@@ -164,6 +168,7 @@ class LogCleaner(val config: CleanerConfig,
   /**
    * The cleaner threads do the actual log cleaning. Each thread processes does its cleaning repeatedly by
    * choosing the dirtiest log, cleaning it, and then swapping in the cleaned segments.
+   * 代表一个线程,用于做清理工作
    */
   private class CleanerThread(threadId: Int)
     extends ShutdownableThread(name = "kafka-log-cleaner-thread-" + threadId, isInterruptible = false) {
@@ -212,7 +217,7 @@ class LogCleaner(val config: CleanerConfig,
     private def cleanOrSleep() {
       cleanerManager.grabFilthiestLog() match {
         case None =>
-          // there are no cleanable logs, sleep a while
+          // there are no cleanable logs, sleep a while 没有要清理的日志,因此睡一会
           backOffWaitLatch.await(config.backOffMs, TimeUnit.MILLISECONDS)
         case Some(cleanable) =>
           // there's a log, clean it

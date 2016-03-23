@@ -30,13 +30,22 @@ import java.io._
  * 如果该类下有tmp,没有file,则说明tmp是最新版,因为有tmp后,就将file删除掉了,所以只有tmp,没有file
  * 
  * 在每一个log磁盘下,创建一个OffsetCheckpoint对象,文件名是replication-offset-checkpoint
+ * 该类记录一个topic的一个partition的偏移量三者关系
  */
 class OffsetCheckpoint(val file: File) extends Logging {
   private val lock = new Object()
+  
+  //刚刚创建该文件,因此要先删除中间.tmp文件,然后创建该file文件
   new File(file + ".tmp").delete() // try to delete any existing temp files for cleanliness
   file.createNewFile() // in case the file doesn't exist
 
   //向文件中写入该TopicAndPartition对应的文件偏移量
+  /**
+   * 格式:
+   * 0版本号
+   * Map[TopicAndPartition, Long].size
+   * 循环Map,每行存储偏移量信息 topic partition offset
+   */
   def write(offsets: Map[TopicAndPartition, Long]) {
     lock synchronized {
       
@@ -112,7 +121,7 @@ class OffsetCheckpoint(val file: File) extends Logging {
               offsets += (TopicAndPartition(topic, partition) -> offset)
               line = reader.readLine()
             }
-            if(offsets.size != expectedSize)
+            if(offsets.size != expectedSize) //说明有异常,期望的和现实的数量不一致
               throw new IOException("Expected %d entries but found only %d".format(expectedSize, offsets.size))
             offsets
           case _ => //校验版本号失败

@@ -524,6 +524,7 @@ object Utils extends Logging {
   
   /**
    * Read a big-endian integer from a byte array
+   * 从bytes的offset位置开始读取四个字节,组成一个int
    */
   def readInt(bytes: Array[Byte], offset: Int): Int = {
     ((bytes(offset) & 0xFF) << 24) |

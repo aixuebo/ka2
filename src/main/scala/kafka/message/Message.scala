@@ -24,34 +24,41 @@ import kafka.utils._
 /**
  * Constants related to messages
  * 指代一个message信息
- * 
+ * 格式:
+ * 4个字节的crc校验和
+ * 1个字节的magic魔
+ * 1个字节的属性长度,即该属性设置的是该message的加密方式属性
+ * 4个字节代表key字节长度
+ * key的内容
+ * 4个字节表示value的长度
+ * value的内容
  */
 object Message {
   
   /**
    * The current offset and size for all the fixed-length fields
    */
-  val CrcOffset = 0
-  val CrcLength = 4
-  val MagicOffset = CrcOffset + CrcLength
-  val MagicLength = 1
-  val AttributesOffset = MagicOffset + MagicLength
-  val AttributesLength = 1
-  val KeySizeOffset = AttributesOffset + AttributesLength
-  val KeySizeLength = 4
-  val KeyOffset = KeySizeOffset + KeySizeLength
-  val ValueSizeLength = 4
+  val CrcOffset = 0//crc校验和的开始位置
+  val CrcLength = 4//crc校验和所占字节数
+  val MagicOffset = CrcOffset + CrcLength//magic魔的开始位置 4
+  val MagicLength = 1//magic魔的长度
+  val AttributesOffset = MagicOffset + MagicLength//属性的开始位置 5
+  val AttributesLength = 1//属性的长度
+  val KeySizeOffset = AttributesOffset + AttributesLength//key的开始位置 6
+  val KeySizeLength = 4//key的长度
+  val KeyOffset = KeySizeOffset + KeySizeLength//value的开始位置 10
+  val ValueSizeLength = 4//value的长度
   
   /** The amount of overhead bytes in a message */
-  val MessageOverhead = KeyOffset + ValueSizeLength
+  val MessageOverhead = KeyOffset + ValueSizeLength //14,表示真正message的信息的开始位置
   
   /**
    * The minimum valid size for the message header
    */
-  val MinHeaderSize = CrcLength + MagicLength + AttributesLength + KeySizeLength + ValueSizeLength
+  val MinHeaderSize = CrcLength + MagicLength + AttributesLength + KeySizeLength + ValueSizeLength //14,表示每一个message信息包含着14个字节头文件
   
   /**
-   * The current "magic" value
+   * The current "magic" value 当前魔版本号
    */
   val CurrentMagicValue: Byte = 0
 
@@ -80,6 +87,7 @@ object Message {
  * 7. V byte payload
  *
  * Default constructor wraps an existing ByteBuffer with the Message object with no change to the contents.
+ * 构造函数的参数是为一个message预先分配的缓存空间,正好可以存储该message信息
  */
 class Message(val buffer: ByteBuffer) {
   
@@ -108,40 +116,51 @@ class Message(val buffer: ByteBuffer) {
                              (if(bytes == null) 0 
                               else if(payloadSize >= 0) payloadSize 
                               else bytes.length - payloadOffset)))
-    // skip crc, we will fill that in at the end
+                              /**
+                              * 预先设置一个message信息所占空间,即14个头文件字节+key的字节+value的字节,
+                              * 注意
+                              * value的字节数如果payloadSize>=0.表示value只要这些长度的值
+                              * value的字节数为value总长度 - payloadOffset,即从该payloadOffset偏移量位置开始才是真正的value
+                              * 
+                              */
+    // skip crc, we will fill that in at the end 跳过crc,最后才会写入该crc
     buffer.position(MagicOffset)
-    buffer.put(CurrentMagicValue)
-    var attributes: Byte = 0
+    buffer.put(CurrentMagicValue)//写入魔
+    var attributes: Byte = 0 //设置属性,即该属性表示message的加密方式
     if (codec.codec > 0)
       attributes =  (attributes | (CompressionCodeMask & codec.codec)).toByte
-    buffer.put(attributes)
-    if(key == null) {
+    buffer.put(attributes) //设置文件的加密方式属性
+    if(key == null) {//如果没有key,则设置key为-1
       buffer.putInt(-1)
-    } else {
+    } else {//否则设置key的字节长度+字节信息
       buffer.putInt(key.length)
       buffer.put(key, 0, key.length)
     }
     val size = if(bytes == null) -1
                else if(payloadSize >= 0) payloadSize 
                else bytes.length - payloadOffset
-    buffer.putInt(size)
+    buffer.putInt(size)//设置value的字节长度
     if(bytes != null)
-      buffer.put(bytes, payloadOffset, size)
+      buffer.put(bytes, payloadOffset, size) //设置value的字节内容
     buffer.rewind()//将buffer的position设置到0的位置,下面要在该位置写入校验和数据
     
     // now compute the checksum and fill it in 在校验和的位置写入校验和
-    Utils.writeUnsignedInt(buffer, CrcOffset, computeChecksum)
+    Utils.writeUnsignedInt(buffer, CrcOffset, computeChecksum)//进行校验和计算以及填写到校验和的位置
   }
   
+  //key和value都不是null
   def this(bytes: Array[Byte], key: Array[Byte], codec: CompressionCodec) = 
     this(bytes = bytes, key = key, codec = codec, payloadOffset = 0, payloadSize = -1)
   
+    //key默认为null,仅包含value
   def this(bytes: Array[Byte], codec: CompressionCodec) = 
     this(bytes = bytes, key = null, codec = codec)
   
+    //key和value都不是null
   def this(bytes: Array[Byte], key: Array[Byte]) = 
     this(bytes = bytes, key = key, codec = NoCompressionCodec)
     
+    //key默认为null,仅包含value
   def this(bytes: Array[Byte]) = 
     this(bytes = bytes, key = null, codec = NoCompressionCodec)
     
@@ -187,25 +206,27 @@ class Message(val buffer: ByteBuffer) {
   
   /**
    * Does the message have a key?
-   * 是否存在的key
+   * true表示key不是null
    */
   def hasKey: Boolean = keySize >= 0
   
   /**
    * The position where the payload size is stored
    * value的字节长度在buffer中的位置
+   * 即key开始位置+key长度占用的4个字节+key所占用的所有字节,即value的开始位置
    */
   private def payloadSizeOffset = Message.KeyOffset + max(0, keySize)
   
   /**
    * The length of the message value in bytes
    * 获取value的字节长度
+   * 从value的开始位置读取,返回的就是value所占的长度
    */
   def payloadSize: Int = buffer.getInt(payloadSizeOffset)
   
   /**
    * Is the payload of this message null
-   * 是否有value值,true表示没有value
+   * 是否有value值,true表示没有value,即value的长度<0表示没有value
    */
   def isNull(): Boolean = payloadSize < 0
   
@@ -217,13 +238,13 @@ class Message(val buffer: ByteBuffer) {
   
   /**
    * The attributes stored with this message
-   * 获取attributes字节
+   * 获取attributes字节,即获取该message的压缩方式属性
    */
   def attributes: Byte = buffer.get(AttributesOffset)
   
   /**
    * The compression codec used with this message
-   * 获取该message的压缩类型
+   * 通过压缩方式属性,获取该message的压缩类型
    */
   def compressionCodec: CompressionCodec = 
     CompressionCodec.getCompressionCodec(buffer.get(AttributesOffset) & CompressionCodeMask)
@@ -245,12 +266,12 @@ class Message(val buffer: ByteBuffer) {
    * 对buffer进行复制,产生一个新的buffer,而该新的buffer与老buffer共用同一块内存
    */
   private def sliceDelimited(start: Int): ByteBuffer = {
-    val size = buffer.getInt(start)
+    val size = buffer.getInt(start)//比如start是key的开始位置,则这行代码可以获取key所占字节大小
     if(size < 0) {
       null
     } else {
       var b = buffer.duplicate//复制该buffer
-      b.position(start + 4)//设置新buffer的position位置
+      b.position(start + 4)//设置新buffer的position位置,将key的大小位置过滤掉,剩下的就是key的具体内容所占字节了
       b = b.slice()//对该新的buffer进行分片
       b.limit(size)
       b.rewind

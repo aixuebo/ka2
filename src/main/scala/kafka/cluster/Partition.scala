@@ -37,6 +37,7 @@ import com.yammer.metrics.core.Gauge
 /**
  * Data structure that represents a topic partition. The leader maintains the AR, ISR, CUR, RAR
  * kafka还可以配置partitions需要备份的个数(replicas),每个partition将会被备份到多台机器上,以提高可用性.
+ * 每一个Partition是由topic决定的,即一个topic对应多个Partition,分别编号为partitionId
  */
 class Partition(val topic: String,
                 val partitionId: Int,

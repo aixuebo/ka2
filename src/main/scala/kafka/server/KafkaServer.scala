@@ -54,6 +54,8 @@ class KafkaServer(val config: KafkaConfig, time: Time = SystemTime) extends Logg
   var replicaManager: ReplicaManager = null
   var apis: KafkaApis = null
   var kafkaController: KafkaController = null
+  
+  //线程池调度器
   val kafkaScheduler = new KafkaScheduler(config.backgroundThreads)
   var zkClient: ZkClient = null
 
@@ -75,10 +77,10 @@ class KafkaServer(val config: KafkaConfig, time: Time = SystemTime) extends Logg
       isShuttingDown = new AtomicBoolean(false)
       shutdownLatch = new CountDownLatch(1)
 
-      /* start scheduler */
+      /* start scheduler 创建线程池*/
       kafkaScheduler.startup()
     
-      /* setup zookeeper */
+      /* setup zookeeper 连接zookeeper*/
       zkClient = initZk()
 
       /* start log manager */

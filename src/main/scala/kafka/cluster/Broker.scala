@@ -64,12 +64,14 @@ case class Broker(id: Int, host: String, port: Int) {
 
   def connectionString: String = formatAddress(host, port)//相当于toString方法
 
+  //将id、host、port写入到ByteBuffer中
   def writeTo(buffer: ByteBuffer) {
     buffer.putInt(id)
     writeShortString(buffer, host)//记录host到buffer中
     buffer.putInt(port)
   }
 
+  //存储一个broker需要多少字节,host字符串的长度所需字节+port和id的int值4个字节
   def sizeInBytes: Int = shortStringLength(host) /* host name */ + 4 /* port */ + 4 /* broker id*/
 
   override def equals(obj: Any): Boolean = {

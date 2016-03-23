@@ -20,7 +20,7 @@ package kafka.log
 /**
  * Configuration parameters for the log cleaner
  * 
- * @param numThreads The number of cleaner threads to run
+ * @param numThreads The number of cleaner threads to run 多少个线程去执行清理工作
  * @param dedupeBufferSize The total memory used for log deduplication
  * @param dedupeBufferLoadFactor The maximum percent full for the deduplication buffer
  * @param maxMessageSize The maximum size of a message that can appear in the log

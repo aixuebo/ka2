@@ -56,7 +56,7 @@ class FileMessageSet private[kafka](@volatile var file: File,
 
   /* if this is not a slice, update the file pointer to the end of the file */
   if (!isSlice) 
-    /* set the file position to the last byte in the file */
+    /* set the file position to the last byte in the file 设置文件的当前position到文件的最后一个字节位置*/
     channel.position(channel.size)//设置position,使后来加入的字节都是追加操作
 
   /**
@@ -93,7 +93,7 @@ class FileMessageSet private[kafka](@volatile var file: File,
    * @param size The number of bytes after the start position to include
    * 
    * @return A sliced wrapper on this message set limited based on the given position and size
-   * 返回一个子集
+   * 返回一个子集,截取字节范围是this.start + position  到 this.start + position + size
    */
   def read(position: Int, size: Int): FileMessageSet = {
     if(position < 0)
@@ -213,6 +213,7 @@ class FileMessageSet private[kafka](@volatile var file: File,
   
   /**
    * The number of bytes taken up by this file set
+   * 这段file set有多少个字节
    */
   def sizeInBytes(): Int = _size.get()
   
@@ -275,6 +276,8 @@ class FileMessageSet private[kafka](@volatile var file: File,
    * 
    * channel跳转到relativePosition指定位置,然后开始读数据到buffer中
    * 然后buffer进行flip,好让buffer继续读取已经读到的数据
+   * 
+   * 即从relativePosition + this.start位置开始读取数据,读取结果写入到参数buffer中,然后将指针指向第0个字节的位置,返回该buffer
    */
   def readInto(buffer: ByteBuffer, relativePosition: Int): ByteBuffer = {
     channel.read(buffer, relativePosition + this.start)
@@ -285,6 +288,8 @@ class FileMessageSet private[kafka](@volatile var file: File,
   /**
    * Rename the file that backs this message set
    * @return true iff the rename was successful
+   * 将file文件剪切到参数f,然后file引用引像新的参数f
+   * 返回true表示剪切成功
    */
   def renameTo(f: File): Boolean = {
     val success = this.file.renameTo(f)

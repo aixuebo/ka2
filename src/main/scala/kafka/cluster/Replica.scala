@@ -35,6 +35,8 @@ import java.util.concurrent.atomic.AtomicLong
 /**
  * @log 参数是该节点上存储该partition的日志文件,如果该参数有值,说明该节点是本地机器
  * @Replica 表示该Replica所在broker节点ID
+ * 
+ * 该对象表示一个partition的一个备份,因此他包含Partition对象
  */
 class Replica(val brokerId: Int,
               val partition: Partition,

@@ -29,6 +29,7 @@ case class TopicAndPartition(topic: String, partition: Int) {
 
   def this(partition: Partition) = this(partition.topic, partition.partitionId)
 
+  //参数是一个partition的一个备份对象,partition可以有多个备份对象
   def this(replica: Replica) = this(replica.topic, replica.partitionId)
 
   def asTuple = (topic, partition)
