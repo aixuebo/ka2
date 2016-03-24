@@ -421,7 +421,7 @@ class LogManager(val logDirs: Array[File],//目录集合,可以处理目录存�
       logDirs(0)
     } else {
       // count the number of logs in each parent directory (including 0 for empty directories
-      //按照每一个log对象所在的目录分组,获取该目录中拥有多少个LOG对象,返回值key是file的所在目录path,value是该path下有多少个LOG对象
+      //Map[String, Int] 按照每一个log对象所在的目录分组,获取该目录中拥有多少个LOG对象,返回值key是file的所在目录path,value是该path下有多少个LOG对象
       val logCounts = allLogs.groupBy(_.dir.getParent).mapValues(_.size)
       val zeros = logDirs.map(dir => (dir.getPath, 0)).toMap//初始化每一个默认为0个文件
       var dirCounts = (zeros ++ logCounts).toBuffer//合并两个集合,返回值key是file的所在目录path,value是该path下有多少个LOG对象
@@ -469,7 +469,7 @@ class LogManager(val logDirs: Array[File],//目录集合,可以处理目录存�
   def cleanupLogs() {
     debug("Beginning log cleanup...")
     var total = 0
-    val startMs = time.milliseconds
+    val startMs = time.milliseconds //用于记录clean的消耗时间
     for(log <- allLogs; if !log.config.compact) {
       debug("Garbage collecting '" + log.name + "'")
       total += cleanupExpiredSegments(log) + cleanupSegmentsToMaintainSize(log)

@@ -76,7 +76,7 @@ class OffsetIndex(@volatile var file: File, val baseOffset: Long, val maxIndexSi
         if(newlyCreated) {
           if(maxIndexSize < 8)
             throw new IllegalArgumentException("Invalid max index size: " + maxIndexSize)
-          raf.setLength(roundToExactMultiple(maxIndexSize, 8))//返回第一个参数/8 最近接的整数,例如 67返回的是64,即返回该索引文件最多允许到哪个位置结束
+          raf.setLength(roundToExactMultiple(maxIndexSize, 8))//设置文件的最大字节数,返回第一个参数/8 最近接的整数,例如 67返回的是64,即返回该索引文件最多允许到哪个位置结束
         }
           
         /* memory-map the file */
@@ -95,7 +95,7 @@ class OffsetIndex(@volatile var file: File, val baseOffset: Long, val maxIndexSi
       }
     }
   
-  /* the number of eight-byte entries currently in the index 当前position位置 指示的是第几个索引*/
+  /* the number of eight-byte entries currently in the index 当前一共有多少个元素,因为每个元素占用8个字节位置 */
   private var size = new AtomicInteger(mmap.position / 8)
   
   /**
@@ -185,10 +185,10 @@ class OffsetIndex(@volatile var file: File, val baseOffset: Long, val maxIndexSi
   }
   
   /* return the nth offset relative to the base offset 获取该segment中第n个索引对应在全局索引的序号*/
-  private def relativeOffset(buffer: ByteBuffer, n: Int): Int = buffer.getInt(n * 8)
+  private def relativeOffset(buffer: ByteBuffer, n: Int): Int = buffer.getInt(n * 8) //获取的是相对的offset的值
   
   /* return the nth physical position 获取该segment中第n个索引对应在segment的log文件中的位置*/
-  private def physical(buffer: ByteBuffer, n: Int): Int = buffer.getInt(n * 8 + 4)
+  private def physical(buffer: ByteBuffer, n: Int): Int = buffer.getInt(n * 8 + 4) //获取的是posotion的值
   
   /**
    * Get the nth offset mapping from the index
@@ -212,7 +212,7 @@ class OffsetIndex(@volatile var file: File, val baseOffset: Long, val maxIndexSi
    */
   def append(offset: Long, position: Int) {
     inLock(lock) {
-      require(!isFull, "Attempt to append to a full index (size = " + size + ").")
+      require(!isFull, "Attempt to append to a full index (size = " + size + ").") //确保容器不能满
       if (size.get == 0 || offset > lastOffset) {
         debug("Adding index entry %d => %d to %s.".format(offset, position, file.getName))
         this.mmap.putInt((offset - baseOffset).toInt)
@@ -341,7 +341,7 @@ class OffsetIndex(@volatile var file: File, val baseOffset: Long, val maxIndexSi
     this.file.delete()
   }
   
-  /** The number of entries in this index 当前position位置 指示的是第几个索引*/
+  /** The number of entries in this index 当前有多少个元素*/
   def entries() = size.get
   
   /**

@@ -29,13 +29,18 @@ import kafka.utils.IteratorTemplate
  */
 object ByteBufferMessageSet {
   
+  /**
+   * 创建一个buffer,里面存储所有的Message集合,message可以使用压缩方式
+   * @param offsetCounter 用于计算message集合中每一个message的序号,依次累加1
+   * @param messages 将message集合信息依次写入到buffer中,最终返回该buffer的
+   */
   private def create(offsetCounter: AtomicLong, compressionCodec: CompressionCodec, messages: Message*): ByteBuffer = {
     if(messages.size == 0) {//没有message则返回空的ByteBuffer
       MessageSet.Empty.buffer
     } else if(compressionCodec == NoCompressionCodec) {//不压缩
-      val buffer = ByteBuffer.allocate(MessageSet.messageSetSize(messages))
+      val buffer = ByteBuffer.allocate(MessageSet.messageSetSize(messages))//计算所有的message集合提供需要多少空间
       for(message <- messages)
-        writeMessage(buffer, message, offsetCounter.getAndIncrement)
+        writeMessage(buffer, message, offsetCounter.getAndIncrement)//循环每一个message,写入到buffer中
       buffer.rewind()//将buffer的position设置到0的位置
       buffer
     } else {//需要压缩
@@ -112,6 +117,8 @@ object ByteBufferMessageSet {
  *
  * Option 2: Give it a list of messages along with instructions relating to serialization format. Producers will use this method.
  * 
+ * 
+ * 构造函数中buffer是已经创建好了,可以容纳所有message集合的缓冲区
  */
 class ByteBufferMessageSet(val buffer: ByteBuffer) extends MessageSet with Logging {
   private var shallowValidByteCount = -1
@@ -131,7 +138,7 @@ class ByteBufferMessageSet(val buffer: ByteBuffer) extends MessageSet with Loggi
     this(NoCompressionCodec, new AtomicLong(0), messages: _*)
   }
 
-  def getBuffer = buffer
+  def getBuffer = buffer //获取缓冲区
 
   private def shallowValidBytes: Int = {
     if(shallowValidByteCount < 0) {
@@ -147,7 +154,7 @@ class ByteBufferMessageSet(val buffer: ByteBuffer) extends MessageSet with Loggi
   }
   
   /** Write the messages in this set to the given channel 
-   *  将GatheringByteChannel的信息从offer开始写入到buffer中,写入size个
+   *  将buffer的信息写入到channel中
    **/
   def writeTo(channel: GatheringByteChannel, offset: Long, size: Int): Int = {
     // Ignore offset and size from input. We just want to write the whole buffer to the channel.

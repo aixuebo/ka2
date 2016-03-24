@@ -61,7 +61,7 @@ class Log(val dir: File,
   /* A lock that guards all modifications to the log */
   private val lock = new Object
 
-  /* last time it was flushed */
+  /* last time it was flushed 最后flush的时间戳*/
   private val lastflushedTime = new AtomicLong(time.milliseconds)
 
   /** the actual segments of the log 
@@ -120,23 +120,22 @@ class Log(val dir: File,
       if(!file.canRead)
         throw new IOException("Could not read file " + file)
       val filename = file.getName
-      if(filename.endsWith(DeletedFileSuffix) || filename.endsWith(CleanedFileSuffix)) {
+      if(filename.endsWith(DeletedFileSuffix) || filename.endsWith(CleanedFileSuffix)) {//.deleted 或者 .cleaned结尾的文件,进行删除
         // if the file ends in .deleted or .cleaned, delete it
         file.delete()
-      } else if(filename.endsWith(SwapFileSuffix)) {
+      } else if(filename.endsWith(SwapFileSuffix)) {//.swap结尾的文件
         // we crashed in the middle of a swap operation, to recover:
         // if a log, swap it in and delete the .index file
         // if an index just delete it, it will be rebuilt
-        //xxx.swap 最后返回xxx
-        val baseName = new File(Utils.replaceSuffix(file.getPath, SwapFileSuffix, ""))
-        if(baseName.getPath.endsWith(IndexFileSuffix)) {
+        val baseName = new File(Utils.replaceSuffix(file.getPath, SwapFileSuffix, "")) //xxx.swap 转换成 xxx
+        if(baseName.getPath.endsWith(IndexFileSuffix)) {//.index结尾的文件,删除掉
           file.delete()
-        } else if(baseName.getPath.endsWith(LogFileSuffix)){
+        } else if(baseName.getPath.endsWith(LogFileSuffix)){//.log结尾的文件
           // delete the index
-          val index = new File(Utils.replaceSuffix(baseName.getPath, LogFileSuffix, IndexFileSuffix))
+          val index = new File(Utils.replaceSuffix(baseName.getPath, LogFileSuffix, IndexFileSuffix)) //找到xxx.index,然后删除该文件
           index.delete()
           // complete the swap operation
-          val renamed = file.renameTo(baseName)
+          val renamed = file.renameTo(baseName) //将file转换成xxx.swap
           if(renamed)
             info("Found log file %s from interrupted swap operation, repairing.".format(file.getPath))
           else
@@ -148,9 +147,9 @@ class Log(val dir: File,
     // now do a second pass and load all the .log and .index files 再次循环一次,加载所有的log和index文件
     for(file <- dir.listFiles if file.isFile) {
       val filename = file.getName
-      if(filename.endsWith(IndexFileSuffix)) {
+      if(filename.endsWith(IndexFileSuffix)) {//.index结尾的文件
         // if it is an index file, make sure it has a corresponding .log file 确保该索引文件对应的log文件也存在
-        val logFile = new File(file.getAbsolutePath.replace(IndexFileSuffix, LogFileSuffix))
+        val logFile = new File(file.getAbsolutePath.replace(IndexFileSuffix, LogFileSuffix))//找到xxx.log文件
         if(!logFile.exists) {//如果对应的log文件不存在,则删除该索引文件
           warn("Found an orphaned index file, %s, with no corresponding log file.".format(file.getAbsolutePath))
           file.delete()
@@ -690,6 +689,7 @@ class Log(val dir: File,
   
   /**
    * All the log segments in this log ordered from oldest to newest
+   * 属于该partition的所有segment集合
    */
   def logSegments: Iterable[LogSegment] = {
     import JavaConversions._

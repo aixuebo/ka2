@@ -27,20 +27,25 @@ import java.nio.channels._
  */
 object MessageSet {
 
-  val MessageSizeLength = 4
-  val OffsetLength = 8
-  val LogOverhead = MessageSizeLength + OffsetLength
+  val MessageSizeLength = 4 //int类型,存储message有多少个字节
+  val OffsetLength = 8 //long类型,存储message的偏移量,该long表示第几个message的意思,是依次累加1的操作
+  val LogOverhead = MessageSizeLength + OffsetLength //每一个message要多出12个字节
   val Empty = new ByteBufferMessageSet(ByteBuffer.allocate(0))
   
   /**
    * The size of a message set containing the given messages
+   * 计算message集合总共需要多少字节数
+   * 每一个message计算方法:(4+8+message字节数)
+   * 计算所有message之和
    */
   def messageSetSize(messages: Iterable[Message]): Int =
     messages.foldLeft(0)(_ + entrySize(_))
 
   /**
    * The size of a list of messages
-   * 获取该message集合所占用的总字节大小
+   * 计算message集合总共需要多少字节数
+   * 每一个message计算方法:(4+8+message字节数)
+   * 计算所有message之和
    */
   def messageSetSize(messages: java.util.List[Message]): Int = {
     var size = 0
@@ -96,7 +101,7 @@ abstract class MessageSet extends Iterable[MessageAndOffset] {
   
   /**
    * Gives the total size of this message set in bytes
-   * 该message集合所占用总字节大小
+   * 该message集合所占用总字节大小,包含message外的信息所占用字节数
    */
   def sizeInBytes: Int
 
