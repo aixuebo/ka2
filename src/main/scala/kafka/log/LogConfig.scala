@@ -70,15 +70,15 @@ object Defaults {
  *
  */
 case class LogConfig(val segmentSize: Int = Defaults.SegmentSize,
-                     val segmentMs: Long = Defaults.SegmentMs,
+                     val segmentMs: Long = Defaults.SegmentMs,//一个LogSegment文件创建超过该时间,则不管日志是否满了,都创建一个新的日志文件
                      val segmentJitterMs: Long = Defaults.SegmentJitterMs,
-                     val flushInterval: Long = Defaults.FlushInterval,
+                     val flushInterval: Long = Defaults.FlushInterval,//flush的间隔,未flush的message数量达到一定程度,就要进行flush操作
                      val flushMs: Long = Defaults.FlushMs,//log日志flush的时间间隔
                      val retentionSize: Long = Defaults.RetentionSize,
                      val retentionMs: Long = Defaults.RetentionMs,//log中segment日志保留的时间,这些时间内的是要保留的
                      val maxMessageSize: Int = Defaults.MaxMessageSize,
                      val maxIndexSize: Int = Defaults.MaxIndexSize,
-                     val indexInterval: Int = Defaults.IndexInterval,
+                     val indexInterval: Int = Defaults.IndexInterval,//用于设置索引文件的间隔,多少间隔设置一个索引
                      val fileDeleteDelayMs: Long = Defaults.FileDeleteDelayMs,
                      val deleteRetentionMs: Long = Defaults.DeleteRetentionMs,
                      val minCleanableRatio: Double = Defaults.MinCleanableDirtyRatio,
@@ -108,6 +108,7 @@ case class LogConfig(val segmentSize: Int = Defaults.SegmentSize,
     props
   }
 
+  //用处不太大,用于校准时间戳的,在配置文件配置的
   def randomSegmentJitter: Long =
     if (segmentJitterMs == 0) 0 else Utils.abs(scala.util.Random.nextInt()) % math.min(segmentJitterMs, segmentMs)
 }

@@ -40,17 +40,17 @@ import java.io.File
  * @param time The time instance 时间调度器
  */
 @nonthreadsafe
-class LogSegment(val log: FileMessageSet, 
-                 val index: OffsetIndex, 
-                 val baseOffset: Long, 
-                 val indexIntervalBytes: Int,
-                 val rollJitterMs: Long,
+class LogSegment(val log: FileMessageSet, //数据文件
+                 val index: OffsetIndex,  //索引文件
+                 val baseOffset: Long, //属于该topic-partition的第几个message,例如该值为100,则说明该文件LogSegment的第一个message编号是topic-partition的100号信息
+                 val indexIntervalBytes: Int,//config.indexInterval 用于设置索引文件的间隔,多少间隔设置一个索引,该值是一个字节数
+                 val rollJitterMs: Long,//config.randomSegmentJitter 用处不太大,用于校准时间戳的,在配置文件配置的,参见LogConfig.randomSegmentJitter
                  time: Time) extends Logging {
   
   var created = time.milliseconds
 
   /* the number of bytes since we last added an entry in the offset index 记录上一次索引到现在已经多少个字节,当达到indexIntervalBytes时候,该值会重置为0*/
-  private var bytesSinceLastIndexEntry = 0
+  private var bytesSinceLastIndexEntry = 0 //距离上一次索引文件写入后,有多少个字节新产生了
   
   /**
    * @param dir 代表该log的segment文件所在目录
@@ -59,6 +59,7 @@ class LogSegment(val log: FileMessageSet,
    * @param maxIndexSize 代表索引文件的最大字节数
    * @param
    * @param time 时间调度器
+   * 
    */
   def this(dir: File, startOffset: Long, indexIntervalBytes: Int, maxIndexSize: Int, rollJitterMs: Long, time: Time) =
     this(new FileMessageSet(file = Log.logFilename(dir, startOffset)), 
@@ -132,7 +133,7 @@ class LogSegment(val log: FileMessageSet,
     if(maxSize < 0)
       throw new IllegalArgumentException("Invalid max size for log read (%d)".format(maxSize))
 
-    val logSize = log.sizeInBytes // this may change, need to save a consistent copy
+    val logSize = log.sizeInBytes // this may change, need to save a consistent copy 这个值可能被更改.因此先进行备份
     val startPosition = translateOffset(startOffset)
 
     // if the start position is already off the end of the log, return null
@@ -252,6 +253,7 @@ class LogSegment(val log: FileMessageSet,
   
   /**
    * Flush this log segment to disk
+   * flush日志文件和索引文件
    */
   @threadsafe
   def flush() {
@@ -263,6 +265,8 @@ class LogSegment(val log: FileMessageSet,
   
   /**
    * Change the suffix for the index and log file for this log segment
+   * 修改日志和索引文件的后缀名
+   * 例如xxx.oldSuffix 最后返回xxx.newSuffix
    */
   def changeFileSuffixes(oldSuffix: String, newSuffix: String) {
     val logRenamed = log.renameTo(new File(Utils.replaceSuffix(log.file.getPath, oldSuffix, newSuffix)))
@@ -275,6 +279,7 @@ class LogSegment(val log: FileMessageSet,
   
   /**
    * Close this log segment
+   * 关闭日志和索引文件
    */
   def close() {
     Utils.swallow(index.close)
@@ -287,9 +292,9 @@ class LogSegment(val log: FileMessageSet,
    * 索引文件和log文件一起删除
    */
   def delete() {
-    val deletedLog = log.delete()
-    val deletedIndex = index.delete()
-    if(!deletedLog && log.file.exists)
+    val deletedLog = log.delete() //删除日志文件.返回是否删除成功
+    val deletedIndex = index.delete() //删除索引文件,返回是否删除成功
+    if(!deletedLog && log.file.exists) //说明文件存在,但是删除不成功,则抛异常
       throw new KafkaStorageException("Delete of log " + log.file.getName + " failed.")
     if(!deletedIndex && index.file.exists)
       throw new KafkaStorageException("Delete of index " + index.file.getName + " failed.")

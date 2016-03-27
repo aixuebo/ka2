@@ -31,8 +31,8 @@ import kafka.metrics.{KafkaTimer, KafkaMetricsGroup}
 /**
  * An on-disk message set. An optional start and end position can be applied to the message set
  * which will allow slicing a subset of the file.
- * @param file The file name for the underlying log data
- * @param channel the underlying file channel used
+ * @param file The file name for the underlying log data  备注:Log.logFilename方法,产生一个文件dir/00000000000000000001.log
+ * @param channel the underlying file channel used 
  * @param start A lower bound on the absolute position in the file from which the message set begins
  * @param end The upper bound on the absolute position in the file at which the message set ends
  * @param isSlice Should the start and end parameters be used for slicing?
@@ -121,7 +121,7 @@ class FileMessageSet private[kafka](@volatile var file: File,
     val size = sizeInBytes()//当前文件总字节大小
     while(position + MessageSet.LogOverhead < size) {//只要还存在message就不断循环
       buffer.rewind()
-      channel.read(buffer, position)//读取该message在log中的偏移量和message在log中所占用字节
+      channel.read(buffer, position)//读取该message在log中的序号和message在log中所占用字节
       if(buffer.hasRemaining)//如果没读取完.说明有异常
         throw new IllegalStateException("Failed to read complete buffer for targetOffset %d startPosition %d in %s"
                                         .format(targetOffset, startingPosition, file.getAbsolutePath))

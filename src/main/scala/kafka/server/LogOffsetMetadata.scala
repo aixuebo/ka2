@@ -34,9 +34,9 @@ object LogOffsetMetadata {
 
 /*
  * A log offset structure, including:
- *  1. the message offset 该partition的总字节位置
- *  2. the base message offset of the located segment
- *  3. the physical position on the located segment
+ *  1. the message offset 该partition的当前message序号位置
+ *  2. the base message offset of the located segment 当前最后一个日志中第一个元素的序号
+ *  3. the physical position on the located segment 在当前的日志中有多少个message个数
  */
 case class LogOffsetMetadata(messageOffset: Long,
                              segmentBaseOffset: Long = LogOffsetMetadata.UnknownSegBaseOffset,

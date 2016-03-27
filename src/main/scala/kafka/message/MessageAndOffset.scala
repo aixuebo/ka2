@@ -17,7 +17,7 @@
 
 package kafka.message
 
-//定义信息以及该信息在log中的偏移量、以及下一个信息在该log中的偏移量
+//定义信息以及该信息在log中的序号、以及下一个信息在该log中的偏移量
 case class MessageAndOffset(message: Message, offset: Long) {
   
   /**

@@ -23,7 +23,7 @@ package kafka.log
  * given offset.
  * 参数
  * offset:表示在log中第几个message信息
- * position:表示在log中该message对象第一个字节的偏移量,从该位置可以读取该message信息
+ * position:表示在log中该offset位置的message第一个字节的在该logSegment中偏移量,从该位置可以读取该message信息
  * 
  * 该对象表示log日志中一个message信息
  */

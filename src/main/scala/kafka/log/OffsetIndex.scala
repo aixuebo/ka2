@@ -57,8 +57,8 @@ import kafka.common.InvalidOffsetException
  * 第一个int是在segment中第几个message,如果要计算全局占第几个message,需要用该参数+baseOffset即可
  * 第二个int表示在该segment文件的哪个节点位置开始插入该offset信息 
  * 
- * @param file 表示索引文件
- * @param baseOffset 代表该log的segment文件第一个message在整个队列中的序号offset
+ * @param file 表示索引文件  备注:Log.indexFilename方法,产生一个文件dir/00000000000000000001.index
+ * @param baseOffset 代表该log的segment文件第一个message在整个topic-partition的位置,这个位置是绝对位置,是10000,就是第10000个message,该值基本上与文件名对应的值相同
  * @param maxIndexSize 表示索引文件的最大字节数
  * 
  */
@@ -120,8 +120,8 @@ class OffsetIndex(@volatile var file: File, val baseOffset: Long, val maxIndexSi
   def readLastEntry(): OffsetPosition = {
     inLock(lock) {
       size.get match {
-        case 0 => OffsetPosition(baseOffset, 0)
-        case s => OffsetPosition(baseOffset + relativeOffset(this.mmap, s-1), physical(this.mmap, s-1))
+        case 0 => OffsetPosition(baseOffset, 0)//说明该日志中还没有存储信息,因此该message的全局log位置就是baseOffset,在该logSegment中的位置是0
+        case s => OffsetPosition(baseOffset + relativeOffset(this.mmap, s-1), physical(this.mmap, s-1)) //全局位置是baseOffset+在logSegment中的位置,
       }
     }
   }
@@ -135,6 +135,7 @@ class OffsetIndex(@volatile var file: File, val baseOffset: Long, val maxIndexSi
    * @return The offset found and the corresponding file position for this offset. 
    * If the target offset is smaller than the least entry in the index (or the index is empty),
    * the pair (baseOffset, 0) is returned.
+   * 返回值是该目标下表在该文件下具体的位置
    */
   def lookup(targetOffset: Long): OffsetPosition = {
     maybeLock(lock) {
@@ -160,7 +161,7 @@ class OffsetIndex(@volatile var file: File, val baseOffset: Long, val maxIndexSi
     // we only store the difference from the base offset so calculate that 先获取该segment中的相对位置
     val relOffset = targetOffset - baseOffset
     
-    // check if the index is empty
+    // check if the index is empty 说明该索引中没有元素,因此返回-1,找不到的意思
     if(entries == 0)
       return -1
     
@@ -242,11 +243,12 @@ class OffsetIndex(@volatile var file: File, val baseOffset: Long, val maxIndexSi
   /**
    * Remove all entries from the index which have an offset greater than or equal to the given offset.
    * Truncating to an offset larger than the largest in the index has no effect.
+   * 只是截短到offset位置
    */
   def truncateTo(offset: Long) {
     inLock(lock) {
       val idx = mmap.duplicate
-      val slot = indexSlotFor(idx, offset)
+      val slot = indexSlotFor(idx, offset)//搜索该位置对应的是第几个
 
       /* There are 3 cases for choosing the new size
        * 1) if there is no entry in the index <= the offset, delete everything
@@ -279,6 +281,7 @@ class OffsetIndex(@volatile var file: File, val baseOffset: Long, val maxIndexSi
   /**
    * Trim this segment to fit just the valid entries, deleting all trailing unwritten bytes from
    * the file.
+   * 将文件大小正好设置到容纳当前索引文件的大小位置
    */
   def trimToValidSize() {
     inLock(lock) {
