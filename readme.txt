@@ -14,3 +14,7 @@
 		<version>4.12</version>
 	</dependency>
 
+
+
+
+kafka客户端需要指定message发送给哪个topic-partition.
