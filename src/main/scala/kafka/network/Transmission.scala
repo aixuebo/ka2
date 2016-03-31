@@ -113,7 +113,7 @@ abstract class MultiSend[S <: Send](val sends: List[S]) extends Send {
   def writeTo(channel: GatheringByteChannel): Int = {
     expectIncomplete//校验,确保目前还没有完成
     var totalWrittenPerCall = 0//本次调用,发送了多少个字节
-    var sendComplete: Boolean = false
+    var sendComplete: Boolean = false //true表示单独一个send完成
     do {
       val written = current.head.writeTo(channel)//获取send集合的第一个send,将该send信息写入到channel中
       totalWritten += written//统计写入了多少个字节
