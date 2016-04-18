@@ -31,8 +31,8 @@ trait AsyncProducerConfig {
   /**
    * Timeout for event enqueue:
    * 0: events will be enqueued immediately or dropped if the queue is full 如果队列满了,则事件会被丢弃,如果没满,事件会立即进入队列
-   * -ve: enqueue will block indefinitely if the queue is full 如果队列满了,则事件会被阻塞
-   * +ve: enqueue will block up to this many milliseconds if the queue is full 如果队列满了,事件会被阻塞多少毫秒
+   * -ve: enqueue will block indefinitely if the queue is full 负数,表示如果队列满了,则事件会被阻塞
+   * +ve: enqueue will block up to this many milliseconds if the queue is full 正数,表示如果队列满了,事件会被阻塞多少毫秒
    */
   val queueEnqueueTimeoutMs = props.getInt("queue.enqueue.timeout.ms", -1)
 

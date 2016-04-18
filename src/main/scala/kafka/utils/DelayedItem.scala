@@ -26,7 +26,9 @@ import scala.math._
  */
 class DelayedItem[T](val item: T, delay: Long, unit: TimeUnit) extends Delayed with Logging {
 
-  val createdMs = SystemTime.milliseconds
+  val createdMs = SystemTime.milliseconds //创建DelayedItem的时间
+  
+  //表示总共需要延迟多长时间
   val delayMs = {
     val given = unit.toMillis(delay)//根据delay和TimeUnit单位,计算延迟多少毫秒
     if (given < 0 || (createdMs + given) < 0) (Long.MaxValue - createdMs)
@@ -42,14 +44,14 @@ class DelayedItem[T](val item: T, delay: Long, unit: TimeUnit) extends Delayed w
    * 还需要延迟多少TimeUnit单位时间
    */
   def getDelay(unit: TimeUnit): Long = {
-    val elapsedMs = (SystemTime.milliseconds - createdMs)
-    unit.convert(max(delayMs - elapsedMs, 0), TimeUnit.MILLISECONDS)
+    val elapsedMs = (SystemTime.milliseconds - createdMs) //已经延迟了多长时间
+    unit.convert(max(delayMs - elapsedMs, 0), TimeUnit.MILLISECONDS) //返回剩余延迟多长时间
   }
    
   //按照延迟后的最后时间排序
   def compareTo(d: Delayed): Int = {
     val delayed = d.asInstanceOf[DelayedItem[T]]
-    val myEnd = createdMs + delayMs
+    val myEnd = createdMs + delayMs //延迟到最后的时间
     val yourEnd = delayed.createdMs + delayed.delayMs
 
     if(myEnd < yourEnd) -1

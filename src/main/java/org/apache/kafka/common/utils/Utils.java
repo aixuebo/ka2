@@ -24,6 +24,7 @@ import org.apache.kafka.common.KafkaException;
 
 public class Utils {
 
+	//host:port的正则表达式
     private static final Pattern HOST_PORT_PATTERN = Pattern.compile("\\[?(.+?)\\]?:(\\d+)");
 
     public static String NL = System.getProperty("line.separator");
@@ -295,6 +296,7 @@ public class Utils {
      * Extracts the port number from a "host:port" address string.
      * @param address address string to parse
      * @return port number or null if the given address is incorrect
+     * 校验参数符合host:port格式,并且port是正数
      */
     public static Integer getPort(String address) {
         Matcher matcher = HOST_PORT_PATTERN.matcher(address);

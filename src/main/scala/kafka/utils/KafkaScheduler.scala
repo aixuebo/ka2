@@ -46,6 +46,7 @@ trait Scheduler {
    * @param delay The amount of time to wait before the first execution
    * @param period The period with which to execute the task. If < 0 the task will execute only once.
    * @param unit The unit for the preceding times.
+   * 使用一个线程去执行函数fun,该函数没有返回值
    */
   def schedule(name: String, fun: ()=>Unit, delay: Long = 0, period: Long = -1, unit: TimeUnit = TimeUnit.MILLISECONDS)
 }
@@ -61,8 +62,8 @@ trait Scheduler {
  * 多线程调度器
  */
 @threadsafe
-class KafkaScheduler(val threads: Int, 
-                     val threadNamePrefix: String = "kafka-scheduler-", 
+class KafkaScheduler(val threads: Int, //多少个线程
+                     val threadNamePrefix: String = "kafka-scheduler-",//每一个线程的名字前缀 
                      daemon: Boolean = true) extends Scheduler with Logging {
   @volatile private var executor: ScheduledThreadPoolExecutor = null
   private val schedulerThreadId = new AtomicInteger(0)//因为参数传递了threads,表示线程池会有多个线程,因此schedulerThreadId属性用于为每一个线程起名字的数字

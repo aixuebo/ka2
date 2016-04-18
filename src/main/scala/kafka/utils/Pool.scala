@@ -41,6 +41,7 @@ class Pool[K,V](valueFactory: Option[(K) => V] = None) extends Iterable[(K, V)] 
   
   def put(k: K, v: V) = pool.put(k, v)
   
+  //如果不存在,才添加
   def putIfNotExists(k: K, v: V) = pool.putIfAbsent(k, v)
 
   /**

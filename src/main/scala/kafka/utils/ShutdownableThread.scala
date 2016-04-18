@@ -20,11 +20,14 @@ package kafka.utils
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.CountDownLatch
 
+/**
+ * @isInterruptible 如果是true,表示停止后要调用interrupt方法
+ */
 abstract class ShutdownableThread(val name: String, val isInterruptible: Boolean = true)
         extends Thread(name) with Logging {
   this.setDaemon(false)
   this.logIdent = "[" + name + "], "
-  val isRunning: AtomicBoolean = new AtomicBoolean(true)
+  val isRunning: AtomicBoolean = new AtomicBoolean(true) //默认是true
   private val shutdownLatch = new CountDownLatch(1)
 
   def shutdown() = {
@@ -33,7 +36,7 @@ abstract class ShutdownableThread(val name: String, val isInterruptible: Boolean
   }
 
   def initiateShutdown(): Boolean = {
-    if(isRunning.compareAndSet(true, false)) {
+    if(isRunning.compareAndSet(true, false)) { //将true改成false,说明已经停止运行了
       info("Shutting down")
       isRunning.set(false)
       if (isInterruptible)

@@ -23,6 +23,7 @@ import scala.collection._
 import kafka.message.{CompressionCodec, NoCompressionCodec}
 
 /**
+ * 该类表示可证实的属性类
  * 通过key获取Properties中的value,并且有校验该value是否在一定区间以及该value是否合法功能
  */
 class VerifiableProperties(val props: Properties) extends Logging {
@@ -189,7 +190,8 @@ class VerifiableProperties(val props: Properties) extends Logging {
   
   /**
    * Get a Map[String, String] from a property list in the form k1:v2, k2:v2, ...
-   * 格式key1:val1, key2:val2 转化成Map
+   * key为name的字符串,对应的value格式是key1:val1, key2:val2 转化成Map
+   * valid函数是参数String,返回值boolean,默认是返回true,如果校验返回false,则抛异常
    */
   def getMap(name: String, valid: String => Boolean = s => true): Map[String, String] = {
     try {
@@ -197,7 +199,7 @@ class VerifiableProperties(val props: Properties) extends Logging {
       m.foreach {
         case(key, value) => 
           if(!valid(value))
-            throw new IllegalArgumentException("Invalid entry '%s' = '%s' for property '%s'".format(key, value, name))
+            throw new IllegalArgumentException("Invalid entry '%s' = '%s' for property '%s'".format(key, value, name)) //如果校验返回false,则抛异常
       }
       m
     } catch {
@@ -208,9 +210,10 @@ class VerifiableProperties(val props: Properties) extends Logging {
   /**
    * Parse compression codec from a property list in either. Codecs may be specified as integers, or as strings.
    * See [[kafka.message.CompressionCodec]] for more details.
-   * @param name The property name
-   * @param default Default compression codec
+   * @param name The property name 属性key
+   * @param default Default compression codec 默认压缩类型
    * @return compression codec
+   * 获取key对应的值,该值是一个压缩类型信息对应的int值
    */
   def getCompressionCodec(name: String, default: CompressionCodec) = {
     val prop = getString(name, NoCompressionCodec.name)
@@ -223,6 +226,7 @@ class VerifiableProperties(val props: Properties) extends Logging {
     }
   }
 
+  //校验方法
   def verify() {
     info("Verifying properties")
     //对key进行排序
@@ -232,8 +236,8 @@ class VerifiableProperties(val props: Properties) extends Logging {
     }
     
     for(key <- propNames) {
-      if (!referenceSet.contains(key) && !key.startsWith("external"))
-        warn("Property %s is not valid".format(key))
+      if (!referenceSet.contains(key) && !key.startsWith("external")) //key不再referenceSet中,并且key又不是external开头的自定义的key,说明该key没有被使用过
+        warn("Property %s is not valid".format(key)) //打印信息
       else
         info("Property %s is overridden to %s".format(key, props.getProperty(key)))
     }

@@ -19,41 +19,46 @@ package kafka.utils
 
 import java.lang.IllegalStateException
 
+//迭代器状态
 class State
-object DONE extends State
-object READY extends State
-object NOT_READY extends State
-object FAILED extends State
+object DONE extends State //已经迭代完了
+object READY extends State //已经准备好了,可以进行迭代了
+object NOT_READY extends State //还没有准备好进行迭代,属于初始状态
+object FAILED extends State //迭代失败
 
 /**
  * Transliteration of the iterator template in google collections. To implement an iterator
  * override makeNext and call allDone() when there is no more items
+ * 迭代器模版,每一次返回元素T
  */
 abstract class IteratorTemplate[T] extends Iterator[T] with java.util.Iterator[T] {
   
-  private var state: State = NOT_READY
-  private var nextItem = null.asInstanceOf[T]
+  private var state: State = NOT_READY //初始化迭代状态
+  private var nextItem = null.asInstanceOf[T] //下一个元素内容,默认是null
 
+  //直接返回下一个元素
   def next(): T = {
-    if(!hasNext())
-      throw new NoSuchElementException()
+    if(!hasNext()) //判断是否还有下一个元素
+      throw new NoSuchElementException() //如果没有下一个元素了,则抛异常
     state = NOT_READY
     if(nextItem == null)
       throw new IllegalStateException("Expected item but none found.")
     nextItem
   }
   
+  //仅仅拿到下一个元素,并不需要进一步迭代
   def peek(): T = {
     if(!hasNext())
       throw new NoSuchElementException()
     nextItem
   }
   
+  //true表示还有元素,false表示没有元素了
   def hasNext(): Boolean = {
     if(state == FAILED)
       throw new IllegalStateException("Iterator is in failed state")
     state match {
-      case DONE => false
+      case DONE => false //说明完成了,则返回false
       case READY => true
       case _ => maybeComputeNext()
     }
@@ -72,14 +77,17 @@ abstract class IteratorTemplate[T] extends Iterator[T] with java.util.Iterator[T
     }
   }
   
+  //设置迭代完成
   protected def allDone(): T = {
     state = DONE
     null.asInstanceOf[T]
   }
   
+  //不支持移除数据元素
   def remove = 
     throw new UnsupportedOperationException("Removal not supported")
 
+  //重新设置迭代状态
   protected def resetState() {
     state = NOT_READY
   }

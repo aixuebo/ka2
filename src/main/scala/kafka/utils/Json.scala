@@ -24,12 +24,13 @@ import util.parsing.json.JSON
  *  A wrapper that synchronizes JSON in scala, which is not threadsafe.
  */
 object Json extends Logging {
-  val myConversionFunc = {input : String => input.toInt}
+  val myConversionFunc = {input : String => input.toInt} //将字符串参数转换成int
   JSON.globalNumberParser = myConversionFunc
   val lock = new Object
 
   /**
    * Parse a JSON string into an object
+   * 将字符串转换成Json对象
    */
   def parseFull(input: String): Option[Any] = {
     lock synchronized {
@@ -48,6 +49,7 @@ object Json extends Logging {
    * Any other type will result in an exception.
    * 
    * This method does not properly handle non-ascii characters. 
+   * 相当于对json对象的toString方法,参数就是json对象
    */
   def encode(obj: Any): String = {
     obj match {

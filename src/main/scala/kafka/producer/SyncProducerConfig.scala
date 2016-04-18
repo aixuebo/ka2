@@ -21,7 +21,7 @@ import java.util.Properties
 import kafka.utils.VerifiableProperties
 
 /**
- * 该生产者向哪个host和port发送请求
+ * 该生产者向哪个host和port发送请求,即向一个broker节点发送信息
  */
 class SyncProducerConfig private (val props: VerifiableProperties) extends SyncProducerConfigShared {
   def this(originalProps: Properties) {

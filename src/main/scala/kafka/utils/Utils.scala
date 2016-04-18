@@ -48,6 +48,7 @@ object Utils extends Logging {
    * Wrap the given function in a java.lang.Runnable
    * @param fun A function
    * @return A Runnable that just executes the function
+   * 产生一个runnable类
    */
   def runnable(fun: => Unit): Runnable =
     new Runnable {
@@ -58,6 +59,7 @@ object Utils extends Logging {
    * Create a daemon thread
    * @param runnable The runnable to execute in the background
    * @return The unstarted thread
+   * 产生一个后台执行的线程
    */
   def daemonThread(runnable: Runnable): Thread =
     newThread(runnable, true)
@@ -67,6 +69,7 @@ object Utils extends Logging {
    * @param name The name of the thread
    * @param runnable The runnable to execute in the background
    * @return The unstarted thread
+   * 产生一个后台执行的线程
    */
   def daemonThread(name: String, runnable: Runnable): Thread = 
     newThread(name, runnable, true)
@@ -76,6 +79,7 @@ object Utils extends Logging {
    * @param name The name of the thread
    * @param fun The runction to execute in the thread
    * @return The unstarted thread
+   * 产生一个后台执行的线程,并且线程的实现体为无返回值的fun函数
    */
   def daemonThread(name: String, fun: () => Unit): Thread = 
     daemonThread(name, runnable(fun))
@@ -86,6 +90,7 @@ object Utils extends Logging {
    * @param runnable The work for the thread to do
    * @param daemon Should the thread block JVM shutdown?
    * @return The unstarted thread
+   * 产生一个线程
    */
   def newThread(name: String, runnable: Runnable, daemon: Boolean): Thread = {
     val thread = new Thread(runnable, name) 
@@ -103,6 +108,7 @@ object Utils extends Logging {
    * @param runnable The work for the thread to do
    * @param daemon Should the thread block JVM shutdown?
    * @return The unstarted thread
+   * 产生一个线程
    */
   def newThread(runnable: Runnable, daemon: Boolean): Thread = {
     val thread = new Thread(runnable)

@@ -93,6 +93,7 @@ class Producer[K,V](val config: ProducerConfig,
   //处理异步请求发送数据
   private def asyncSend(messages: Seq[KeyedMessage[K,V]]) {
     for (message <- messages) {
+      //把数据添加到队列中
       val added = config.queueEnqueueTimeoutMs match {
         case 0  =>
           queue.offer(message)//直接进入队列
