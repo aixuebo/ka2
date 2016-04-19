@@ -64,14 +64,17 @@ object ConsumerConfig extends Config {
     validateOffsetsStorage(config.offsetsStorage)
   }
 
+  //校验clientId这个字符串是否格式合法
   def validateClientId(clientId: String) {
     validateChars("client.id", clientId)
   }
 
+  //校验groupId这个字符串是否格式合法
   def validateGroupId(groupId: String) {
     validateChars("group.id", groupId)
   }
 
+  //校验参数的值只能是smallest或者largest
   def validateAutoOffsetReset(autoOffsetReset: String) {
     autoOffsetReset match {
       case OffsetRequest.SmallestTimeString =>
@@ -81,6 +84,7 @@ object ConsumerConfig extends Config {
     }
   }
 
+  //校验参数的值只能是zookeeper或者kafka
   def validateOffsetsStorage(storage: String) {
     storage match {
       case "zookeeper" =>
@@ -182,6 +186,7 @@ class ConsumerConfig private (val props: VerifiableProperties) extends ZKConfig(
 
   /**
    * Client id is specified by the kafka consumer client, used to distinguish different clients
+   * 指明是一个kafka的消费者客户端,被使用与区分不同的客户端
    */
   val clientId = props.getString("client.id", groupId)
 

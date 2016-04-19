@@ -31,7 +31,7 @@ import kafka.consumer.{Blacklist,Whitelist,ConsumerConfig,Consumer}
 
 /**
  * Consumer that dumps messages out to standard out.
- *
+ * 控制台作为消费者
  */
 object ConsoleConsumer extends Logging {
 
@@ -40,7 +40,7 @@ object ConsoleConsumer extends Logging {
     val topicIdOpt = parser.accepts("topic", "The topic id to consume on.")
             .withRequiredArg
             .describedAs("topic")
-            .ofType(classOf[String])
+            .ofType(classOf[String]) //表示要消费哪个topic
     val whitelistOpt = parser.accepts("whitelist", "Whitelist of topics to include for consumption.")
             .withRequiredArg
             .describedAs("whitelist")
@@ -53,31 +53,39 @@ object ConsoleConsumer extends Logging {
             "Multiple URLS can be given to allow fail-over.")
             .withRequiredArg
             .describedAs("urls")
-            .ofType(classOf[String])
+            .ofType(classOf[String])//格式host:port,连接zookeeper的url
 
     val consumerConfigOpt = parser.accepts("consumer.config", "Consumer config properties file.")
             .withRequiredArg
             .describedAs("config file")
-            .ofType(classOf[String])
+            .ofType(classOf[String]) //消费者配置文件路径
     val messageFormatterOpt = parser.accepts("formatter", "The name of a class to use for formatting kafka messages for display.")
             .withRequiredArg
             .describedAs("class")
             .ofType(classOf[String])
-            .defaultsTo(classOf[DefaultMessageFormatter].getName)
+            .defaultsTo(classOf[DefaultMessageFormatter].getName) //如何将kafka的信息格式化输出出来
     val messageFormatterArgOpt = parser.accepts("property")
             .withRequiredArg
             .describedAs("prop")
-            .ofType(classOf[String])
+            .ofType(classOf[String]) //用户自定义属性信息
+            
+    //发现group消费组以前设置的offset元数据信息,请使用--delete-consumer-offsets命令去删除以前的offsets元数据信息
+    //如果设置了,则消费组在启动的时候,要在zookeeper上被删除掉
     val deleteConsumerOffsetsOpt = parser.accepts("delete-consumer-offsets", "If specified, the consumer path in zookeeper is deleted when starting up");
+    
     val resetBeginningOpt = parser.accepts("from-beginning", "If the consumer does not already have an established offset to consume from, " +
             "start with the earliest message present in the log rather than the latest message.")
+            
     val maxMessagesOpt = parser.accepts("max-messages", "The maximum number of messages to consume before exiting. If not set, consumption is continual.")
             .withRequiredArg
             .describedAs("num_messages")
-            .ofType(classOf[java.lang.Integer])
+            .ofType(classOf[java.lang.Integer]) //在退出消费者信息前,最多消费多少条记录,如果不设置,则会连续不断的全部消费所有数据
     val skipMessageOnErrorOpt = parser.accepts("skip-message-on-error", "If there is an error when processing a message, " +
-            "skip it instead of halt.")
+            "skip it instead of halt.")//表示当处理kafka中的key-value为一行数据时,如果出现异常,是跳过该一行信息,还是抛异常停止程序
+            
+    //如果设置了该参数,则csv格式的统计报告要被激活可用
     val csvMetricsReporterEnabledOpt = parser.accepts("csv-reporter-enabled", "If set, the CSV metrics reporter will be enabled")
+    //如果csvMetricsReporterEnabledOpt被设置了,则该命令也要被设置,用于将csv格式的统计信息存储在什么地方
     val metricsDirectoryOpt = parser.accepts("metrics-dir", "If csv-reporter-enable is set, and this parameter is" +
             "set, the csv metrics will be outputed here")
       .withRequiredArg
@@ -87,21 +95,21 @@ object ConsoleConsumer extends Logging {
     if(args.length == 0)
       CommandLineUtils.printUsageAndDie(parser, "The console consumer is a tool that reads data from Kafka and outputs it to standard output.")
       
-    var groupIdPassed = true
+    var groupIdPassed = true //false表示配置文件中没有设置groupId,true表示已经设置了
     val options: OptionSet = tryParse(parser, args)
-    CommandLineUtils.checkRequiredArgs(parser, options, zkConnectOpt)
+    CommandLineUtils.checkRequiredArgs(parser, options, zkConnectOpt) //必须有zookeeper的url
     val topicOrFilterOpt = List(topicIdOpt, whitelistOpt, blacklistOpt).filter(options.has)
     if (topicOrFilterOpt.size != 1)
-      CommandLineUtils.printUsageAndDie(parser, "Exactly one of whitelist/blacklist/topic is required.")
-    val topicArg = options.valueOf(topicOrFilterOpt.head)
-    val filterSpec = if (options.has(blacklistOpt))
+      CommandLineUtils.printUsageAndDie(parser, "Exactly one of whitelist/blacklist/topic is required.")//whitelist/blacklist/topic中必须只能存在一个
+    val topicArg = options.valueOf(topicOrFilterOpt.head) //因为只有一个,所以获取head即可
+    val filterSpec = if (options.has(blacklistOpt)) //判断是否有黑名单,如果有黑名单,则说明仅有的1个就是黑名单,否则都是白名单
       new Blacklist(topicArg)
     else
       new Whitelist(topicArg)
 
-    val csvMetricsReporterEnabled = options.has(csvMetricsReporterEnabledOpt)
+    val csvMetricsReporterEnabled = options.has(csvMetricsReporterEnabledOpt) //是否存储csv格式的报告信息
     if (csvMetricsReporterEnabled) {
-      val csvReporterProps = new Properties()
+      val csvReporterProps = new Properties() //配置信息
       csvReporterProps.put("kafka.metrics.polling.interval.secs", "5")
       csvReporterProps.put("kafka.metrics.reporters", "kafka.metrics.KafkaCSVMetricsReporter")
       if (options.has(metricsDirectoryOpt))
@@ -113,50 +121,51 @@ object ConsoleConsumer extends Logging {
       KafkaMetricsReporter.startReporters(verifiableProps)
     }
 
-
-
-    val consumerProps = if (options.has(consumerConfigOpt))
+    val consumerProps = if (options.has(consumerConfigOpt)) //加载配置文件
       Utils.loadProps(options.valueOf(consumerConfigOpt))
     else
-      new Properties()
+      new Properties()//否则生成一个空的配置文件对象
 
-    if(!consumerProps.containsKey("group.id")) {
-      consumerProps.put("group.id","console-consumer-" + new Random().nextInt(100000))
+    if(!consumerProps.containsKey("group.id")) {//没有设置消费的组ID
+      consumerProps.put("group.id","console-consumer-" + new Random().nextInt(100000)) //随机生成一个组id
       groupIdPassed=false
     }
     consumerProps.put("auto.offset.reset", if(options.has(resetBeginningOpt)) "smallest" else "largest")
-    consumerProps.put("zookeeper.connect", options.valueOf(zkConnectOpt))
+    consumerProps.put("zookeeper.connect", options.valueOf(zkConnectOpt)) //设置zookeeper连接url
 
+    //该if表示没有设置delete-consumer-offsets命令,但是有from-beginning命令,同时该消费组下存在offsets路径
     if (!options.has(deleteConsumerOffsetsOpt) && options.has(resetBeginningOpt) &&
        checkZkPathExists(options.valueOf(zkConnectOpt),"/consumers/" + consumerProps.getProperty("group.id")+ "/offsets")) {
       System.err.println("Found previous offset information for this group "+consumerProps.getProperty("group.id")
         +". Please use --delete-consumer-offsets to delete previous offsets metadata")
-      System.exit(1)
+        //发现group消费组以前设置的offset元数据信息,请使用--delete-consumer-offsets命令去删除以前的offsets元数据信息
+      System.exit(1)//退出程序
     }
 
-    if(options.has(deleteConsumerOffsetsOpt))
+    if(options.has(deleteConsumerOffsetsOpt))//先删除该消费组的信息
       ZkUtils.maybeDeletePath(options.valueOf(zkConnectOpt), "/consumers/" + consumerProps.getProperty("group.id"))
 
-    val config = new ConsumerConfig(consumerProps)
-    val skipMessageOnError = if (options.has(skipMessageOnErrorOpt)) true else false
-    val messageFormatterClass = Class.forName(options.valueOf(messageFormatterOpt))
-    val formatterArgs = CommandLineUtils.parseKeyValueArgs(options.valuesOf(messageFormatterArgOpt))
-    val maxMessages = if(options.has(maxMessagesOpt)) options.valueOf(maxMessagesOpt).intValue else -1
-    val connector = Consumer.create(config)
+    val config = new ConsumerConfig(consumerProps) //消费者配置信息
+    val skipMessageOnError = if (options.has(skipMessageOnErrorOpt)) true else false //处理kafka数据时,出现异常了,是否要跳过该行信息
+    val messageFormatterClass = Class.forName(options.valueOf(messageFormatterOpt)) //如何处理kafka的数据类
+    val formatterArgs = CommandLineUtils.parseKeyValueArgs(options.valuesOf(messageFormatterArgOpt)) //用户自定义属性信息
+    val maxMessages = if(options.has(maxMessagesOpt)) options.valueOf(maxMessagesOpt).intValue else -1 //在退出消费者信息前,最多消费多少条记录,如果不设置,则会连续不断的全部消费所有数据
+    val connector = Consumer.create(config) //创建消费者
 
     Runtime.getRuntime.addShutdownHook(new Thread() {
       override def run() {
         connector.shutdown()
         // if there is no group specified then avoid polluting zookeeper with persistent group data, this is a hack
-        if(!groupIdPassed)
+        if(!groupIdPassed) //因为没有设置组ID,而是我们随机生成的一个组ID,因此要删除组ID的信息
           ZkUtils.maybeDeletePath(options.valueOf(zkConnectOpt), "/consumers/" + consumerProps.get("group.id"))
       }
     })
 
     var numMessages = 0L
-    val formatter: MessageFormatter = messageFormatterClass.newInstance().asInstanceOf[MessageFormatter]
-    formatter.init(formatterArgs)
+    val formatter: MessageFormatter = messageFormatterClass.newInstance().asInstanceOf[MessageFormatter] //消费者消费key-value的class类
+    formatter.init(formatterArgs) //使用用户自定义属性信息对该类进行初始化
     try {
+      //获取topic集合、多少个流去获取、key和value的解析器,返回Set,Set元素是每一个流,因为当前需要1个流,因此get(0)即可返回流
       val stream = connector.createMessageStreamsByFilter(filterSpec, 1, new DefaultDecoder(), new DefaultDecoder()).get(0)
       val iter = if(maxMessages >= 0)
         stream.slice(0, maxMessages)
@@ -165,11 +174,11 @@ object ConsoleConsumer extends Logging {
 
       for(messageAndTopic <- iter) {
         try {
-          formatter.writeTo(messageAndTopic.key, messageAndTopic.message, System.out)
-          numMessages += 1
+          formatter.writeTo(messageAndTopic.key, messageAndTopic.message, System.out)//对每一个kafka里面的key-value进行输出到System.out中
+          numMessages += 1 //处理了多少行数据
         } catch {
           case e: Throwable =>
-            if (skipMessageOnError)
+            if (skipMessageOnError) //出异常时,是否要跳过该行信息
               error("Error processing message, skipping this message: ", e)
             else
               throw e
@@ -177,7 +186,7 @@ object ConsoleConsumer extends Logging {
         if(System.out.checkError()) {
           // This means no one is listening to our output stream any more, time to shutdown
           System.err.println("Unable to write to standard out, closing consumer.")
-          System.err.println("Consumed %d messages".format(numMessages))
+          System.err.println("Consumed %d messages".format(numMessages)) //消费了多少行数据
           formatter.close()
           connector.shutdown()
           System.exit(1)
@@ -192,6 +201,7 @@ object ConsoleConsumer extends Logging {
     connector.shutdown()
   }
 
+  //使用cli工具解析参数
   def tryParse(parser: OptionParser, args: Array[String]) = {
     try {
       parser.parse(args : _*)
@@ -203,6 +213,7 @@ object ConsoleConsumer extends Logging {
     }
   }
 
+  //连接zookeeper的zkUrl的url,判断该zookeeper上是否存在path路径
   def checkZkPathExists(zkUrl: String, path: String): Boolean = {
     try {
       val zk = new ZkClient(zkUrl, 30*1000,30*1000, ZKStringSerializer);
@@ -214,15 +225,18 @@ object ConsoleConsumer extends Logging {
 }
 
 trait MessageFormatter {
-  def writeTo(key: Array[Byte], value: Array[Byte], output: PrintStream)
+  def writeTo(key: Array[Byte], value: Array[Byte], output: PrintStream) //向output中写入key-value信息
   def init(props: Properties) {}
   def close() {}
 }
 
+/**
+ * 向output中写入key-value信息,每一行信息写完后要添加换行符
+ */
 class DefaultMessageFormatter extends MessageFormatter {
-  var printKey = false
-  var keySeparator = "\t".getBytes
-  var lineSeparator = "\n".getBytes
+  var printKey = false //信息中包含key
+  var keySeparator = "\t".getBytes //向输出中写入key-value的拆分符
+  var lineSeparator = "\n".getBytes //每一行的拆分符,用于向输出中写入换行符
 
   override def init(props: Properties) {
     if(props.containsKey("print.key"))
@@ -233,21 +247,24 @@ class DefaultMessageFormatter extends MessageFormatter {
       lineSeparator = props.getProperty("line.separator").getBytes
   }
 
+  //将key-value信息,经过处理写出到output流中
   def writeTo(key: Array[Byte], value: Array[Byte], output: PrintStream) {
-    if(printKey) {
-      output.write(if (key == null) "null".getBytes() else key)
-      output.write(keySeparator)
+    if(printKey) {//包含key
+      output.write(if (key == null) "null".getBytes() else key)//写入key的内容
+      output.write(keySeparator)//写入key-value的分隔符
     }
-    output.write(if (value == null) "null".getBytes() else value)
-    output.write(lineSeparator)
+    output.write(if (value == null) "null".getBytes() else value) //打印value,如果value是null,则打印null
+    output.write(lineSeparator)//向输出中写入换行符
   }
 }
 
+//表示空实现,信息什么都不会输出
 class NoOpMessageFormatter extends MessageFormatter {
   override def init(props: Properties) {}
   def writeTo(key: Array[Byte], value: Array[Byte], output: PrintStream) {}
 }
 
+//表示输出该topic的校验和信息
 class ChecksumMessageFormatter extends MessageFormatter {
   private var topicStr: String = _
 
@@ -260,7 +277,7 @@ class ChecksumMessageFormatter extends MessageFormatter {
   }
 
   def writeTo(key: Array[Byte], value: Array[Byte], output: PrintStream) {
-    val chksum = new Message(value, key).checksum
-    output.println(topicStr + "checksum:" + chksum)
+    val chksum = new Message(value, key).checksum //将key-value组装成message对象,并且计算key-value所有的字节数的校验和信息
+    output.println(topicStr + "checksum:" + chksum) //输出该topic的校验和信息
   }
 }

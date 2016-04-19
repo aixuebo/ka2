@@ -123,11 +123,13 @@ object Utils extends Logging {
   
   /**
    * Read the given byte buffer into a byte array
+   * 读取buffer数组一定字符,读取到一个Array[Byte]中
    */
   def readBytes(buffer: ByteBuffer): Array[Byte] = readBytes(buffer, 0, buffer.limit)
 
   /**
    * Read a byte array from the given offset and size in the buffer
+   * 读取buffer数组一定字符,读取到一个Array[Byte]中
    */
   def readBytes(buffer: ByteBuffer, offset: Int, size: Int): Array[Byte] = {
     val dest = new Array[Byte](size)
@@ -143,7 +145,8 @@ object Utils extends Logging {
 
   /**
    * Read a properties file from the given path
-   * @param filename The path of the file to read
+   * @param filename The path of the file to read ,properties文件的全路径
+   * 读取properties文件
    */
    def loadProps(filename: String): Properties = {
      val props = new Properties()
@@ -173,6 +176,8 @@ object Utils extends Logging {
    * Do the given action and log any exceptions thrown without rethrowing them
    * @param log The log method to use for logging. E.g. logger.warn
    * @param action The action to execute
+   * 执行无返回值的action函数,然后如果出现异常,将日志输出到log中,log参数是两个
+   * 函数名次为咽下,即出了异常也没什么,打印日志即可
    */
   def swallow(log: (Object, Throwable) => Unit, action: => Unit) {
     try {
@@ -185,6 +190,7 @@ object Utils extends Logging {
   /**
    * Test if two byte buffers are equal. In this case equality means having
    * the same bytes from the current position to the limit
+   * 比较两个ByteBuffer的内容是否相同
    */
   def equal(b1: ByteBuffer, b2: ByteBuffer): Boolean = {
     // two byte buffers are equal if their position is the same,
@@ -203,6 +209,7 @@ object Utils extends Logging {
    * Translate the given buffer into a string
    * @param buffer The buffer to translate
    * @param encoding The encoding to use in translating bytes to characters
+   * 将ByteBuffer中的字节数组,根据编码转换成字符串
    */
   def readString(buffer: ByteBuffer, encoding: String = Charset.defaultCharset.toString): String = {
     val bytes = new Array[Byte](buffer.remaining)
@@ -213,6 +220,7 @@ object Utils extends Logging {
   /**
    * Print an error message and shutdown the JVM
    * @param message The error message
+   * 打印错误信息,并且停止程序运行
    */
   def croak(message: String) {
     System.err.println(message)
@@ -222,18 +230,21 @@ object Utils extends Logging {
   /**
    * Recursively delete the given file/directory and any subfiles (if any exist)
    * @param file The root file at which to begin deleting
+   * 删除一个文件,支持递归删除文件夹
    */
   def rm(file: String): Unit = rm(new File(file))
   
   /**
    * Recursively delete the list of files/directories and any subfiles (if any exist)
    * @param a sequence of files to be deleted
+   * 删除一组文件集合,支持递归删除文件夹
    */
   def rm(files: Seq[String]): Unit = files.map(f => rm(new File(f)))
   
   /**
    * Recursively delete the given file/directory and any subfiles (if any exist)
    * @param file The root file at which to begin deleting
+   * 删除一个文件,支持递归删除文件夹
    */
   def rm(file: File) {
 	  if(file == null) {
@@ -331,6 +342,7 @@ object Utils extends Logging {
    * Compute the CRC32 of the byte array
    * @param bytes The array to compute the checksum for
    * @return The CRC32
+   * 对bytes字节数组进行计算校验码,返回该校验码
    */
   def crc32(bytes: Array[Byte]): Long = crc32(bytes, 0, bytes.length)
   
@@ -340,6 +352,7 @@ object Utils extends Logging {
    * @param offset the offset at which to begin checksumming
    * @param size the number of bytes to checksum
    * @return The CRC32
+   * 对bytes字节数组进行计算校验码,返回该校验码
    */
   def crc32(bytes: Array[Byte], offset: Int, size: Int): Long = {
     val crc = new Crc32()
@@ -366,6 +379,9 @@ object Utils extends Logging {
   
   /**
    * Group the given values by keys extracted with the given function
+   * 1.循环每一个value
+   * 2.每一个value作为参数传到f函数中,返回k
+   * 3.按照k进行分组,k就是key,k相同的value作为集合返回
    */
   def groupby[K,V](vals: Iterable[V], f: V => K): Map[K,List[V]] = {
     val m = new mutable.HashMap[K, List[V]]
@@ -394,6 +410,7 @@ object Utils extends Logging {
   /**
    * Throw an exception if the given value is null, else return it. You can use this like:
    * val myValue = Utils.notNull(expressionThatShouldntBeNull)
+   * 确保v不是null即可
    */
   def notNull[V](v: V) = {
     if(v == null)
@@ -404,6 +421,7 @@ object Utils extends Logging {
 
   /**
    * Get the stack trace from an exception as a string
+   * 打印堆栈信息,并且返回该堆栈信息
    */
   def stackTrace(e: Throwable): String = {
     val sw = new StringWriter
@@ -429,6 +447,7 @@ object Utils extends Logging {
    * Parse a comma separated string into a sequence of strings.
    * Whitespace surrounding the comma will be removed.
    * 按照空格拆分成集合,过滤掉空的元素
+   * 例如aaa,bbb,ccc 返回三个集合
    */
   def parseCsvList(csvList: String): Seq[String] = {
     if(csvList == null || csvList.isEmpty)
@@ -440,6 +459,7 @@ object Utils extends Logging {
 
   /**
    * Create an instance of the class with the given class name
+   * 创建一个class实例,参数是class全路径以及构造函数参数集合
    */
   def createObject[T<:AnyRef](className: String, args: AnyRef*): T = {
     val klass = Class.forName(className).asInstanceOf[Class[T]]
@@ -449,6 +469,7 @@ object Utils extends Logging {
 
   /**
    * Is the given string null or empty ("")?
+   * null或者""则返回true
    */
   def nullOrEmpty(s: String): Boolean = s == null || s.equals("")
 
@@ -465,6 +486,7 @@ object Utils extends Logging {
 
   /**
    * Attempt to read a file as a string
+   * 将一个文件的内容返回成字符串
    */
   def readFileAsString(path: String, charset: Charset = Charset.defaultCharset()): String = {
     val stream = new FileInputStream(new File(path))
@@ -481,6 +503,7 @@ object Utils extends Logging {
   /**
    * Get the absolute value of the given number. If the number is Int.MinValue return 0.
    * This is different from java.lang.Math.abs or scala.math.abs in that they return Int.MinValue (!).
+   * 获取绝对值方法
    */
   def abs(n: Int) = if(n == Integer.MIN_VALUE) 0 else math.abs(n)
 
@@ -500,6 +523,7 @@ object Utils extends Logging {
    * @param path The path to create
    * @throws KafkaStorageException If the file create fails
    * @return The created file
+   * 创建一个文件
    */
   def createFile(path: String): File = {
     val f = new File(path)
@@ -511,6 +535,7 @@ object Utils extends Logging {
   
   /**
    * Turn a properties map into a string
+   * 将Properties信息转换成String
    */
   def asString(props: Properties): String = {
     val writer = new StringWriter()
@@ -520,6 +545,7 @@ object Utils extends Logging {
   
   /**
    * Read some properties with the given default values
+   * 读取默认的Properties配置信息,通过s可以更改和添加新的配置信息,最终返回新的配置信息
    */
   def readProps(s: String, defaults: Properties): Properties = {
     val reader = new StringReader(s)
@@ -541,6 +567,7 @@ object Utils extends Logging {
   
   /**
    * Execute the given function inside the lock
+   * 在锁中执行fun函数,函数fun是无参数,又返回值的函数
    */
   def inLock[T](lock: Lock)(fun: => T): T = {
     lock.lock()
@@ -551,8 +578,10 @@ object Utils extends Logging {
     }
   }
 
+  //在读锁中操作fun函数
   def inReadLock[T](lock: ReadWriteLock)(fun: => T): T = inLock[T](lock.readLock)(fun)
 
+  //在写锁中操作fun函数
   def inWriteLock[T](lock: ReadWriteLock)(fun: => T): T = inLock[T](lock.writeLock)(fun)
 
 

@@ -955,11 +955,11 @@ object ZKStringSerializer extends ZkSerializer {
     * /consumers/${group}/ids
    */
 class ZKGroupDirs(val group: String) {
-  //return /consumers
+  //return /consumers 消费者目录,通过该目录可以看到目前有多少消费者组
   def consumerDir = ZkUtils.ConsumersPath
-  //return /consumers/${group}
+  //return /consumers/${group} 指定某一个消费者组
   def consumerGroupDir = consumerDir + "/" + group
-  //return /consumers/${group}/ids
+  //return /consumers/${group}/ids 查看该消费者组下有多少个消费者
   def consumerRegistryDir = consumerGroupDir + "/ids"
 }
 

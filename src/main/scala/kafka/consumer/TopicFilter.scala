@@ -22,7 +22,9 @@ import kafka.utils.Logging
 import java.util.regex.{PatternSyntaxException, Pattern}
 import kafka.common.Topic
 
-
+/**
+ * topic过滤器
+ */
 sealed abstract class TopicFilter(rawRegex: String) extends Logging {
 
   val regex = rawRegex
@@ -45,11 +47,12 @@ sealed abstract class TopicFilter(rawRegex: String) extends Logging {
   /**
    * @topic 表示待校验的topic字符串
    * @excludeInternalTopics true表示要确保topic不能是kafka内部topic名称,例如__consumer_offsets
-   * true表示topic是允许的
+   * 返回值 true表示topic是允许的
    */
   def isTopicAllowed(topic: String, excludeInternalTopics: Boolean): Boolean
 }
 
+//参数是白名单的正则表达式
 case class Whitelist(rawRegex: String) extends TopicFilter(rawRegex) {
   
   override def isTopicAllowed(topic: String, excludeInternalTopics: Boolean) = {
@@ -61,15 +64,15 @@ case class Whitelist(rawRegex: String) extends TopicFilter(rawRegex) {
      */
     val allowed = topic.matches(regex) && !(Topic.InternalTopics.contains(topic) && excludeInternalTopics)
 
+    //打印该topic是否允许
     debug("%s %s".format(
       topic, if (allowed) "allowed" else "filtered"))
 
     allowed
   }
-
-
 }
 
+//参数是黑名单的正则表达式
 case class Blacklist(rawRegex: String) extends TopicFilter(rawRegex) {
   override def isTopicAllowed(topic: String, excludeInternalTopics: Boolean) = {
     
@@ -82,6 +85,7 @@ case class Blacklist(rawRegex: String) extends TopicFilter(rawRegex) {
    */
     val allowed = (!topic.matches(regex)) && !(Topic.InternalTopics.contains(topic) && excludeInternalTopics)
 
+    //打印该topic是否允许
     debug("%s %s".format(
       topic, if (allowed) "allowed" else "filtered"))
 

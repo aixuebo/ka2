@@ -37,9 +37,10 @@ object ConsumerOffsetChecker extends Logging {
   private val offsetMap: mutable.Map[TopicAndPartition, Long] = mutable.Map()
   private var topicPidMap: immutable.Map[String, Seq[Int]] = immutable.Map()
 
+  //参数bid是brokerId,连接该broker,创建该broker的消费者
   private def getConsumer(zkClient: ZkClient, bid: Int): Option[SimpleConsumer] = {
     try {
-      ZkUtils.readDataMaybeNull(zkClient, ZkUtils.BrokerIdsPath + "/" + bid)._1 match {
+      ZkUtils.readDataMaybeNull(zkClient, ZkUtils.BrokerIdsPath + "/" + bid)._1 match {//获取brokerId信息
         case Some(brokerInfoString) =>
           Json.parseFull(brokerInfoString) match {
             case Some(m) =>
@@ -110,9 +111,9 @@ object ConsumerOffsetChecker extends Logging {
     val parser = new OptionParser()
 
     val zkConnectOpt = parser.accepts("zookeeper", "ZooKeeper connect string.").
-            withRequiredArg().defaultsTo("localhost:2181").ofType(classOf[String])
+            withRequiredArg().defaultsTo("localhost:2181").ofType(classOf[String])//zookeeper的url
     val topicsOpt = parser.accepts("topic",
-            "Comma-separated list of consumer topics (all topics if absent).").
+            "Comma-separated list of consumer topics (all topics if absent).").//逗号拆分的topic集合
             withRequiredArg().ofType(classOf[String])
     val groupOpt = parser.accepts("group", "Consumer group.").
             withRequiredArg().ofType(classOf[String])
@@ -121,20 +122,20 @@ object ConsumerOffsetChecker extends Logging {
     val channelRetryBackoffMsOpt = parser.accepts("retry.backoff.ms", "Retry back-off to use for failed offset queries.").
             withRequiredArg().ofType(classOf[java.lang.Integer]).defaultsTo(3000)
 
-    parser.accepts("broker-info", "Print broker info")
-    parser.accepts("help", "Print this message.")
+    parser.accepts("broker-info", "Print broker info") //打印broker详细信息
+    parser.accepts("help", "Print this message.") //打印帮助信息
     
     if(args.length == 0)
       CommandLineUtils.printUsageAndDie(parser, "Check the offset of your consumers.")
 
     val options = parser.parse(args : _*)
 
-    if (options.has("help")) {
+    if (options.has("help")) { //打印帮助信息
        parser.printHelpOn(System.out)
        System.exit(0)
     }
 
-    CommandLineUtils.checkRequiredArgs(parser, options, groupOpt, zkConnectOpt)
+    CommandLineUtils.checkRequiredArgs(parser, options, groupOpt, zkConnectOpt) //必须要有zookeeper的url参数
 
     val zkConnect = options.valueOf(zkConnectOpt)
 
@@ -146,14 +147,15 @@ object ConsumerOffsetChecker extends Logging {
 
     val topics = if (options.has(topicsOpt)) Some(options.valueOf(topicsOpt)) else None
 
-    var zkClient: ZkClient = null
+    var zkClient: ZkClient = null //zookeeper连接后的对象
     var channel: BlockingChannel = null
     try {
       zkClient = new ZkClient(zkConnect, 30000, 30000, ZKStringSerializer)
 
+      //consumers/[groupId]/owners/[topic]/[partitionId]/consumer_thread该组下的每一个topic的partition被哪个消费者线程消费着呢
       val topicList = topics match {
         case Some(x) => x.split(",").view.toList
-        case None => ZkUtils.getChildren(zkClient, groupDirs.consumerGroupDir +  "/owners").toList
+        case None => ZkUtils.getChildren(zkClient, groupDirs.consumerGroupDir +  "/owners").toList ///consumers/${group}/owners下面所有的子节点集合
       }
 
       topicPidMap = immutable.Map(ZkUtils.getPartitionsForTopics(zkClient, topicList).toSeq:_*)

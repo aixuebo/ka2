@@ -25,30 +25,33 @@ import org.apache.kafka.common.utils.Utils._
 
 /**
  * A consumer of kafka messages
+ * 一个broker的简单的消费者
  */
 @threadsafe
-class SimpleConsumer(val host: String,
+class SimpleConsumer(val host: String,//broker的host和端口
                      val port: Int,
                      val soTimeout: Int,
                      val bufferSize: Int,
-                     val clientId: String) extends Logging {
+                     val clientId: String) extends Logging {//准备去连接到该broker的消费者名字
 
-  ConsumerConfig.validateClientId(clientId)
+  ConsumerConfig.validateClientId(clientId) //校验clientId格式是否符合标准
   private val lock = new Object()
   
-  //链接该host:port
+  //连接该host:port所在的broker节点
   private val blockingChannel = new BlockingChannel(host, port, bufferSize, BlockingChannel.UseDefaultBufferSize, soTimeout)
   
   //用于统计该客户端抓取的信息
   private val fetchRequestAndResponseStats = FetchRequestAndResponseStatsRegistry.getFetchRequestAndResponseStats(clientId)
   private var isClosed = false
 
+  //与该broker建立连接
   private def connect(): BlockingChannel = {
     close
     blockingChannel.connect()
     blockingChannel
   }
 
+  //销毁与该broker的连接
   private def disconnect() = {
     debug("Disconnecting from " + formatAddress(host, port))
     blockingChannel.disconnect()

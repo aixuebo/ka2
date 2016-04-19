@@ -43,7 +43,7 @@ object ProducerConfig extends Config {
       throw new InvalidConfigException("Batch size = " + batchSize + " can't be larger than queue size = " + queueSize)
   }
 
-  //类型只能是sync或者async
+  //校验类型只能是sync或者async
   def validateProducerType(producerType: String) {
     producerType match {
       case "sync" =>
@@ -67,6 +67,7 @@ class ProducerConfig private (val props: VerifiableProperties)
    * will be established based on the broker information returned in the metadata. The
    * format is host1:port1,host2:port2, and the list can be a subset of brokers or
    * a VIP pointing to a subset of brokers.
+   * 格式HOST1:PORT1,HOST2:PORT2,即生产者要向那些broker发送信息
    */
   val brokerList = props.getString("metadata.broker.list")
 
@@ -81,6 +82,8 @@ class ProducerConfig private (val props: VerifiableProperties)
   /**
    * This parameter allows you to specify the compression codec for all data generated *
    * by this producer. The default is NoCompressionCodec
+   * 数据上传到broker时候的压缩方式,'none', 'gzip', 'snappy', or 'lz4'
+   * 
    */
   val compressionCodec = props.getCompressionCodec("compression.codec", NoCompressionCodec)
 
@@ -100,6 +103,7 @@ class ProducerConfig private (val props: VerifiableProperties)
 
   /** The leader may be unavailable transiently, which can fail the sending of a message.
     *  This property specifies the number of retries when such failures occur.
+    *  broker能够在很多理由下,接收信息失败,他们可能仅仅在一段期间内不能接收信息,因此该配置只是了尝试发送次数,超过了该次数,则该信息要被丢弃或者其他处理
     */
   val messageSendMaxRetries = props.getInt("message.send.max.retries", 3)
 
@@ -116,6 +120,7 @@ class ProducerConfig private (val props: VerifiableProperties)
    * If you set this to zero, the metadata will get refreshed after each message sent (not recommended)
    * Important note: the refresh happen only AFTER the message is sent, so if the producer never sends
    * a message the metadata is never refreshed
+   * topic的元数据刷新时间间隔
    */
   val topicMetadataRefreshIntervalMs = props.getInt("topic.metadata.refresh.interval.ms", 600000)
 
