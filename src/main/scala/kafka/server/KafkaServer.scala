@@ -37,19 +37,21 @@ import com.yammer.metrics.core.Gauge
 /**
  * Represents the lifecycle of a single Kafka broker. Handles all functionality required
  * to start up and shutdown a single Kafka node.
+ * 代表一个kafka的单节点,该类控制该节点的生命周期
+ * 处理该节点的启动和关闭服务功能
  */
 class KafkaServer(val config: KafkaConfig, time: Time = SystemTime) extends Logging with KafkaMetricsGroup {
   this.logIdent = "[Kafka Server " + config.brokerId + "], "
   private var isShuttingDown = new AtomicBoolean(false)
   private var shutdownLatch = new CountDownLatch(1)
   private var startupComplete = new AtomicBoolean(false)//true表示完成了开启状态
-  val brokerState: BrokerState = new BrokerState
+  val brokerState: BrokerState = new BrokerState //broker节点状态
   val correlationId: AtomicInteger = new AtomicInteger(0)
   var socketServer: SocketServer = null//服务端
   var requestHandlerPool: KafkaRequestHandlerPool = null
   var logManager: LogManager = null
   var offsetManager: OffsetManager = null
-  var kafkaHealthcheck: KafkaHealthcheck = null
+  var kafkaHealthcheck: KafkaHealthcheck = null//将该brokerId注册到zookeeper中,健康该broker节点是否健康
   var topicConfigManager: TopicConfigManager = null
   var replicaManager: ReplicaManager = null
   var apis: KafkaApis = null
@@ -363,6 +365,4 @@ class KafkaServer(val config: KafkaConfig, time: Time = SystemTime) extends Logg
       offsetCommitRequiredAcks = config.offsetCommitRequiredAcks)
     new OffsetManager(offsetManagerConfig, replicaManager, zkClient, kafkaScheduler)
   }
-
 }
-

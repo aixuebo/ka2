@@ -110,6 +110,7 @@ class ProducerConfig private (val props: VerifiableProperties)
   /** Before each retry, the producer refreshes the metadata of relevant topics. Since leader
     * election takes a bit of time, this property specifies the amount of time that the producer
     * waits before refreshing the metadata.
+    * 每一次失败后,要sleep多少秒后再进行尝试
     */
   val retryBackoffMs = props.getInt("retry.backoff.ms", 100)
 

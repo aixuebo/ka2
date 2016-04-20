@@ -32,17 +32,18 @@ import kafka.api.{TopicMetadata, ProducerRequest}
  * 生产者将事件发送出去的处理类
  */
 class DefaultEventHandler[K,V](config: ProducerConfig,
-                               private val partitioner: Partitioner,
-                               private val encoder: Encoder[V],
-                               private val keyEncoder: Encoder[K],
+                               private val partitioner: Partitioner,//该生产者如何分配key到不同的partition中
+                               private val encoder: Encoder[V],//value的编码类
+                               private val keyEncoder: Encoder[K],//key的编码类
                                private val producerPool: ProducerPool,
                                private val topicPartitionInfos: HashMap[String, TopicMetadata] = new HashMap[String, TopicMetadata])
   extends EventHandler[K,V] with Logging {
   val isSync = ("sync" == config.producerType)//是否是同步生产者
 
-  val correlationId = new AtomicInteger(0)
+  val correlationId = new AtomicInteger(0)//相关联的ID
   val brokerPartitionInfo = new BrokerPartitionInfo(config, producerPool, topicPartitionInfos)
 
+  //定期刷新topic元数据相关参数
   private val topicMetadataRefreshInterval = config.topicMetadataRefreshIntervalMs//刷新topic元数据的周期
   private var lastTopicMetadataRefreshTime = 0L//上一次刷新topic元数据的时间
   private val topicMetadataToRefresh = Set.empty[String]//被刷新的topic元数据集合,有效期是一个topicMetadataRefreshInterval时间周期内有效
@@ -52,6 +53,7 @@ class DefaultEventHandler[K,V](config: ProducerConfig,
   private val producerStats = ProducerStatsRegistry.getProducerStats(config.clientId)//每一个生产者clientId对应一个该对象,该对象作为该生产者的一些统计信息
   private val producerTopicStats = ProducerTopicStatsRegistry.getProducerTopicStats(config.clientId)//每一个生产者clientId--topic对应一组统计信息
 
+  //发送一组topic-key-value信息
   def handle(events: Seq[KeyedMessage[K,V]]) {
     //对每一个事件的key-value进行字节码转换,转换成字节数组组装的Message对象
     val serializedData = serialize(events)
@@ -63,40 +65,43 @@ class DefaultEventHandler[K,V](config: ProducerConfig,
     }
     
     var outstandingProduceRequests = serializedData//等待发送出去的请求集合
-    var remainingRetries = config.messageSendMaxRetries + 1
+    var remainingRetries = config.messageSendMaxRetries + 1//最大尝试次数
     val correlationIdStart = correlationId.get()//获取自增长ID
     debug("Handling %d events".format(events.size))//记录本次要处理多少个事件
+    
     while (remainingRetries > 0 && outstandingProduceRequests.size > 0) {//不断尝试发送数据
-      topicMetadataToRefresh ++= outstandingProduceRequests.map(_.topic)
+      topicMetadataToRefresh ++= outstandingProduceRequests.map(_.topic)//获取这些数据中获取topic集合
       
       //将topic元数据信息清空
       if (topicMetadataRefreshInterval >= 0 &&
-          SystemTime.milliseconds - lastTopicMetadataRefreshTime > topicMetadataRefreshInterval) {
+          SystemTime.milliseconds - lastTopicMetadataRefreshTime > topicMetadataRefreshInterval) {//时间间隔超时,则重新更新topic元数据信息
         Utils.swallowError(brokerPartitionInfo.updateInfo(topicMetadataToRefresh.toSet, correlationId.getAndIncrement))
         sendPartitionPerTopicCache.clear()
-        topicMetadataToRefresh.clear
-        lastTopicMetadataRefreshTime = SystemTime.milliseconds
+        topicMetadataToRefresh.clear //清空所有topic集合
+        lastTopicMetadataRefreshTime = SystemTime.milliseconds //更新最后刷新topic元数据时间戳
       }
       
       outstandingProduceRequests = dispatchSerializedData(outstandingProduceRequests)
       if (outstandingProduceRequests.size > 0) {
         info("Back off for %d ms before retrying send. Remaining retries = %d".format(config.retryBackoffMs, remainingRetries-1))
         // back off and update the topic metadata cache before attempting another send operation
-        Thread.sleep(config.retryBackoffMs)
+        Thread.sleep(config.retryBackoffMs) //尝试失败后,休息一定时间
         // get topics of the outstanding produce requests and refresh metadata for those
         Utils.swallowError(brokerPartitionInfo.updateInfo(outstandingProduceRequests.map(_.topic).toSet, correlationId.getAndIncrement))
         sendPartitionPerTopicCache.clear()
-        remainingRetries -= 1
+        remainingRetries -= 1 //尝试次数减一
         producerStats.resendRate.mark()
       }
     }
+    
+    //如果失败次数超过一定限制,则抛异常
     if(outstandingProduceRequests.size > 0) {
       producerStats.failedSendRate.mark()
       val correlationIdEnd = correlationId.get()
       error("Failed to send requests for topics %s with correlation ids in [%d,%d]"
         .format(outstandingProduceRequests.map(_.topic).toSet.mkString(","),
         correlationIdStart, correlationIdEnd-1))
-      throw new FailedToSendMessageException("Failed to send messages after " + config.messageSendMaxRetries + " tries.", null)
+      throw new FailedToSendMessageException("Failed to send messages after " + config.messageSendMaxRetries + " tries.", null)//打印日志说超过了xxx次最大限制后,依然发送信息失败
     }
   }
 
@@ -260,20 +265,20 @@ class DefaultEventHandler[K,V](config: ProducerConfig,
 
   /**
    * Constructs and sends the produce request based on a map from (topic, partition) -> messages
-   *
-   * @param brokerId the broker that will receive the request
-   * @param messagesPerTopic the messages as a map from (topic, partition) -> messages
-   * @return the set (topic, partitions) messages which incurred an error sending or processing
+   * 构造和发送生产者产生的数据,发送到brokerId节点上,发送的内容在map中,key是向该节点哪些topic-partation发送信息,value是发送的message集合
+   * @param brokerId the broker that will receive the request 将要收到请求的节点Id,brokerId
+   * @param messagesPerTopic the messages as a map from (topic, partition) -> messages 在该节点的每一个topic-partition上,对应发送哪些message集合
+   * @return the set (topic, partitions) messages which incurred an error sending or processing,返回(topic, partitions)元组,表示哪些topic-partition发送过程中失败了
    */
   private def send(brokerId: Int, messagesPerTopic: collection.mutable.Map[TopicAndPartition, ByteBufferMessageSet]) = {
-    if(brokerId < 0) {
+    if(brokerId < 0) {//如果没有节点ID,则返回所有的topic-partition集合信息
       warn("Failed to send data since partitions %s don't have a leader".format(messagesPerTopic.map(_._1).mkString(",")))
       messagesPerTopic.keys.toSeq
     } else if(messagesPerTopic.size > 0) {
       val currentCorrelationId = correlationId.getAndIncrement
       val producerRequest = new ProducerRequest(currentCorrelationId, config.clientId, config.requestRequiredAcks,
         config.requestTimeoutMs, messagesPerTopic)
-      var failedTopicPartitions = Seq.empty[TopicAndPartition]
+      var failedTopicPartitions = Seq.empty[TopicAndPartition] //失败的topic-artation集合
       try {
         val syncProducer = producerPool.getProducer(brokerId)
         debug("Producer sending messages with correlation id %d for topics %s to broker %d on %s:%d"
@@ -309,10 +314,10 @@ class DefaultEventHandler[K,V](config: ProducerConfig,
         case t: Throwable =>
           warn("Failed to send producer request with correlation id %d to broker %d with data for partitions %s"
             .format(currentCorrelationId, brokerId, messagesPerTopic.map(_._1).mkString(",")), t)
-          messagesPerTopic.keys.toSeq
+          messagesPerTopic.keys.toSeq //全部的topic-partition都发送失败
       }
     } else {
-      List.empty
+      List.empty //返回空集合
     }
   }
 

@@ -29,10 +29,10 @@ class SyncProducerConfig private (val props: VerifiableProperties) extends SyncP
     // no need to verify the property since SyncProducerConfig is supposed to be used internally
   }
 
-  /** the broker to which the producer sends events */
+  /** the broker to which the producer sends events 要连接的broker所在host*/
   val host = props.getString("host")
 
-  /** the port on which the broker is running */
+  /** the port on which the broker is running 要连接的broker所在port*/
   val port = props.getInt("port")
 }
 
@@ -41,7 +41,7 @@ trait SyncProducerConfigShared {
   
   val sendBufferBytes = props.getInt("send.buffer.bytes", 100*1024)
 
-  /* the client application sending the producer requests */
+  /* the client application sending the producer requests 获取客户端ID,即该生产者的名字*/
   val clientId = props.getString("client.id", SyncProducerConfig.DefaultClientId)
 
   /*
@@ -62,13 +62,14 @@ trait SyncProducerConfigShared {
 
   /*
    * The ack timeout of the producer requests. Value must be non-negative and non-zero
+   * 该值必须是一个正数,该值的含义是生产者请求的确认回复的超时时间
    */
   val requestTimeoutMs = props.getIntInRange("request.timeout.ms", SyncProducerConfig.DefaultAckTimeoutMs,
                                              (1, Integer.MAX_VALUE))
 }
 
 object SyncProducerConfig {
-  val DefaultClientId = ""
+  val DefaultClientId = "" //客户端生产者默认的ID
   val DefaultRequiredAcks : Short = 0
   val DefaultAckTimeoutMs = 10000
 }

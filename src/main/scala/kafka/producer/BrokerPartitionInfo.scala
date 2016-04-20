@@ -33,8 +33,8 @@ class BrokerPartitionInfo(producerConfig: ProducerConfig,
                           producerPool: ProducerPool,
                           topicPartitionInfo: HashMap[String, TopicMetadata])
         extends Logging {
-  val brokerList = producerConfig.brokerList
-  val brokers = ClientUtils.parseBrokerList(brokerList)
+  val brokerList = producerConfig.brokerList //节点集合
+  val brokers = ClientUtils.parseBrokerList(brokerList) //返回 Seq[Broker]对象,即节点对象集合
 
   /**
    * Return a sequence of (brokerId, numPartitions).

@@ -76,10 +76,10 @@ class ProducerSendThread[K,V](val threadName: String,
                       .takeWhile(item => if(item != null) item ne shutdownCommand else true).foreach {
       //currentQueueItem 表示获取的元素KeyedMessage[K, V]
       currentQueueItem =>
-        val elapsed = (SystemTime.milliseconds - lastSend)
+        val elapsed = (SystemTime.milliseconds - lastSend)//获取元素的时间
         // check if the queue time is reached. This happens when the poll method above returns after a timeout and
         // returns a null object
-        val expired = currentQueueItem == null
+        val expired = currentQueueItem == null //等于null,表示过期了,说明poll方法在超时时候返回的是一个null
         if(currentQueueItem != null) {//如果获取到数据则,则添加到ArrayBuffer的events中
           trace("Dequeued item for topic %s, partition key: %s, data: %s"
               .format(currentQueueItem.topic, currentQueueItem.key, currentQueueItem.message))
@@ -92,9 +92,9 @@ class ProducerSendThread[K,V](val threadName: String,
         //达到了批处理上限或者队列里面已经没有数据了,则发送缓存中的事件集合
         if(full || expired) {
           if(expired)
-            debug(elapsed + " ms elapsed. Queue time reached. Sending..")
+            debug(elapsed + " ms elapsed. Queue time reached. Sending..")//打印过期而触发的发送信息
           if(full)
-            debug("Batch full. Sending..")
+            debug("Batch full. Sending..") //打印因为批量够了而触发的发送信息
           // if either queue time has reached or batch size has reached, dispatch to event handler
           tryToHandle(events)
           lastSend = SystemTime.milliseconds

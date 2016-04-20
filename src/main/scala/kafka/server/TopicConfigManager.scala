@@ -71,18 +71,18 @@ class TopicConfigManager(private val zkClient: ZkClient,
    * Begin watching for config changes
    */
   def startup() {
-    //创建/config/changes节点
+    //创建/config/changes节点,并且添加监听事件
     ZkUtils.makeSurePersistentPathExists(zkClient, ZkUtils.TopicConfigChangesPath)
     zkClient.subscribeChildChanges(ZkUtils.TopicConfigChangesPath, ConfigChangeListener)
-    processAllConfigChanges()
+    processAllConfigChanges()//处理所有更改config的topic集合
   }
   
   /**
    * Process all config changes
-   * 获取所有的topic的config更改节点集合
+   * 处理所有更改config的topic集合
    */
   private def processAllConfigChanges() {
-    //获取所有的topic的config更改节点集合
+    //获取/config/changes下所有子节点,表示所有的topic的config更改节点集合
     val configChanges = zkClient.getChildren(ZkUtils.TopicConfigChangesPath)
     import JavaConversions._
     //对变更的信息进行排序,然后进行处理
@@ -96,7 +96,7 @@ class TopicConfigManager(private val zkClient: ZkClient,
    * 参数是/config/changes节点下的子节点名称集合
    */
   private def processConfigChanges(notifications: Seq[String]) {
-    if (notifications.size > 0) {
+    if (notifications.size > 0) {//更改config的topic集合
       info("Processing config change notification(s)...")
       val now = time.milliseconds
       val logs = logManager.logsByTopicPartition.toBuffer

@@ -34,20 +34,22 @@ trait KafkaMetricsGroup extends Logging {
   /**
    * Creates a new MetricName object for gauges, meters, etc. created for this
    * metrics group.
-   * @param name Descriptive name of the metric.
-   * @param tags Additional attributes which mBean will have.
+   * @param name Descriptive name of the metric.该统计项的描述信息
+   * @param tags Additional attributes which mBean will have.附加的一些标签属性,用于xBean使用
    * @return Sanitized metric name object.
    */
   private def metricName(name: String, tags: scala.collection.Map[String, String] = Map.empty) = {
     val klass = this.getClass
-    val pkg = if (klass.getPackage == null) "" else klass.getPackage.getName
-    val simpleName = klass.getSimpleName.replaceAll("\\$$", "")
+    val pkg = if (klass.getPackage == null) "" else klass.getPackage.getName //包名
+    val simpleName = klass.getSimpleName.replaceAll("\\$$", "") //类名,将内部类中$去除掉
 
     explicitMetricName(pkg, simpleName, name, tags)
   }
 
-
-  private def explicitMetricName(group: String, typeName: String, name: String, tags: scala.collection.Map[String, String] = Map.empty) = {
+  private def explicitMetricName(group: String,//分类组,例如包名
+      typeName: String,//分类组下的类型,例如相同包名下的不同的类
+      name: String,//该统计项的描述信息
+      tags: scala.collection.Map[String, String] = Map.empty) = {//附加的一些标签属性,用于xBean使用
     val nameBuilder: StringBuilder = new StringBuilder
 
     nameBuilder.append(group)

@@ -30,11 +30,12 @@ object TopicMetadata {
   val NoLeaderNodeId = -1//该topic下所有的partition中是没有leader的,即没有设置replicas复制功能
 
   //从ByteBuffer中反序列化TopicMetadata对象
+  //@brokers key是brokerId,value是对应的的Broker对象
   def readFrom(buffer: ByteBuffer, brokers: Map[Int, Broker]): TopicMetadata = {
-    val errorCode = readShortInRange(buffer, "error code", (-1, Short.MaxValue))
-    val topic = readShortString(buffer)
-    val numPartitions = readIntInRange(buffer, "number of partitions", (0, Int.MaxValue))
-    val partitionsMetadata: Array[PartitionMetadata] = new Array[PartitionMetadata](numPartitions)
+    val errorCode = readShortInRange(buffer, "error code", (-1, Short.MaxValue)) //获取错误码
+    val topic = readShortString(buffer) //获取该topic名次
+    val numPartitions = readIntInRange(buffer, "number of partitions", (0, Int.MaxValue)) //获取该topic有多少个partition
+    val partitionsMetadata: Array[PartitionMetadata] = new Array[PartitionMetadata](numPartitions) //创建N个partition对象
     for(i <- 0 until numPartitions) {
       val partitionMetadata = PartitionMetadata.readFrom(buffer, brokers)
       partitionsMetadata(partitionMetadata.partitionId) = partitionMetadata
@@ -101,10 +102,11 @@ case class TopicMetadata(topic: String, partitionsMetadata: Seq[PartitionMetadat
 object PartitionMetadata {
 
   //从ByteBuffer中反序列化成一个PartitionMetadata对象
+  //@brokers key是brokerId,value是对应的的Broker对象
   def readFrom(buffer: ByteBuffer, brokers: Map[Int, Broker]): PartitionMetadata = {
     val errorCode = readShortInRange(buffer, "error code", (-1, Short.MaxValue))
     val partitionId = readIntInRange(buffer, "partition id", (0, Int.MaxValue)) /* partition id */
-    val leaderId = buffer.getInt
+    val leaderId = buffer.getInt //该partition的leader所在的brokerId
     val leader = brokers.get(leaderId)//返回该leaderId对应的Broker对象
 
     /* list of all replicas 读取该partitionId的备份数量 */
@@ -121,11 +123,11 @@ object PartitionMetadata {
   }
 }
 
-case class PartitionMetadata(partitionId: Int, 
-                             val leader: Option[Broker], 
-                             replicas: Seq[Broker], 
+case class PartitionMetadata(partitionId: Int, //属于第几个partition
+                             val leader: Option[Broker], //该partition的leader在哪个broker上
+                             replicas: Seq[Broker], //该partition的从节点在哪些节点上
                              isr: Seq[Broker] = Seq.empty,
-                             errorCode: Short = ErrorMapping.NoError) extends Logging {
+                             errorCode: Short = ErrorMapping.NoError) extends Logging { //错误码
   def sizeInBytes: Int = {
     2 /* error code */ + 
     4 /* partition id */ + 

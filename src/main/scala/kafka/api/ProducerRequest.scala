@@ -57,11 +57,11 @@ object ProducerRequest {
  * @param data collection.mutable.Map[TopicAndPartition, ByteBufferMessageSet],表示该生产者请求,按照topic-partition分组,每组都是一个ByteBufferMessageSet对象
  */
 case class ProducerRequest(versionId: Short = ProducerRequest.CurrentVersion,
-                           correlationId: Int,
-                           clientId: String,
+                           correlationId: Int,//是该客户端发送的第几个数据
+                           clientId: String,//表示哪个客户端传递过来的数据
                            requiredAcks: Short,
                            ackTimeoutMs: Int,
-                           data: collection.mutable.Map[TopicAndPartition, ByteBufferMessageSet])
+                           data: collection.mutable.Map[TopicAndPartition, ByteBufferMessageSet])//要向哪些topic-partition发送message集合
     extends RequestOrResponse(Some(RequestKeys.ProduceKey)) {
 
   /**
@@ -169,7 +169,7 @@ case class ProducerRequest(versionId: Short = ProducerRequest.CurrentVersion,
     producerRequest.toString()
   }
 
-
+  //清空要发送的数据内容
   def emptyData(){
     data.clear()
   }
