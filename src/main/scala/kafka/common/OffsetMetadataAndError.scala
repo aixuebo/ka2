@@ -33,6 +33,9 @@ object OffsetAndMetadata {
   val InvalidTime: Long = -1L
 }
 
+/**
+ * 记录offset偏移量以及描述信息  以及异常原因
+ */
 case class OffsetMetadataAndError(offset: Long,
                                   metadata: String = OffsetAndMetadata.NoMetadata,
                                   error: Short = ErrorMapping.NoError) {
@@ -49,9 +52,9 @@ case class OffsetMetadataAndError(offset: Long,
 }
 
 object OffsetMetadataAndError {
-  val NoOffset = OffsetMetadataAndError(OffsetAndMetadata.InvalidOffset, OffsetAndMetadata.NoMetadata, ErrorMapping.NoError)
-  val OffsetsLoading = OffsetMetadataAndError(OffsetAndMetadata.InvalidOffset, OffsetAndMetadata.NoMetadata, ErrorMapping.OffsetsLoadInProgressCode)
-  val NotOffsetManagerForGroup = OffsetMetadataAndError(OffsetAndMetadata.InvalidOffset, OffsetAndMetadata.NoMetadata, ErrorMapping.NotCoordinatorForConsumerCode)
+  val NoOffset = OffsetMetadataAndError(OffsetAndMetadata.InvalidOffset, OffsetAndMetadata.NoMetadata, ErrorMapping.NoError) //没有topic-partition对应的offset数据
+  val OffsetsLoading = OffsetMetadataAndError(OffsetAndMetadata.InvalidOffset, OffsetAndMetadata.NoMetadata, ErrorMapping.OffsetsLoadInProgressCode) //说明该partition正在加载中,还没有加载完成
+  val NotOffsetManagerForGroup = OffsetMetadataAndError(OffsetAndMetadata.InvalidOffset, OffsetAndMetadata.NoMetadata, ErrorMapping.NotCoordinatorForConsumerCode) //说明本地磁盘上没有该partition对应的文件
   val UnknownTopicOrPartition = OffsetMetadataAndError(OffsetAndMetadata.InvalidOffset, OffsetAndMetadata.NoMetadata, ErrorMapping.UnknownTopicOrPartitionCode)
 }
 

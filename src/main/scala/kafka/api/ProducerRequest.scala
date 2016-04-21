@@ -56,11 +56,11 @@ object ProducerRequest {
 /**
  * @param data collection.mutable.Map[TopicAndPartition, ByteBufferMessageSet],表示该生产者请求,按照topic-partition分组,每组都是一个ByteBufferMessageSet对象
  */
-case class ProducerRequest(versionId: Short = ProducerRequest.CurrentVersion,
-                           correlationId: Int,//是该客户端发送的第几个数据
+case class ProducerRequest(versionId: Short = ProducerRequest.CurrentVersion,//ProducerRequest对象的版本号
+                           correlationId: Int,//是该客户端发送的第几个数据,客户端的唯一ID
                            clientId: String,//表示哪个客户端传递过来的数据
-                           requiredAcks: Short,
-                           ackTimeoutMs: Int,
+                           requiredAcks: Short,//是否客户端要收到回执信息
+                           ackTimeoutMs: Int,//客户端收到回执信息的超时时间
                            data: collection.mutable.Map[TopicAndPartition, ByteBufferMessageSet])//要向哪些topic-partition发送message集合
     extends RequestOrResponse(Some(RequestKeys.ProduceKey)) {
 

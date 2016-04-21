@@ -358,11 +358,15 @@ class KafkaConfig private (val props: VerifiableProperties) extends ZKConfig(pro
     OffsetManagerConfig.DefaultOffsetsRetentionCheckIntervalMs, (1, Long.MaxValue))
 
   /* Offset commit will be delayed until all replicas for the offsets topic receive the commit or this timeout is
-   * reached. This is similar to the producer request timeout. */
+   * reached. This is similar to the producer request timeout.
+   * 作为生产者提交该topic-partition的时候,要求回执信息的超时时间 
+   **/
    val offsetCommitTimeoutMs = props.getIntInRange("offsets.commit.timeout.ms",
     OffsetManagerConfig.DefaultOffsetCommitTimeoutMs, (1, Integer.MAX_VALUE))
 
-  /** The required acks before the commit can be accepted. In general, the default (-1) should not be overridden. */
+  /** The required acks before the commit can be accepted. In general, the default (-1) should not be overridden. 
+   * 作为生产者提交该topic-partition的时候,是否需要处理回执信息  
+   **/
   val offsetCommitRequiredAcks = props.getShortInRange("offsets.commit.required.acks",
     OffsetManagerConfig.DefaultOffsetCommitRequiredAcks, (-1, offsetsTopicReplicationFactor))
 

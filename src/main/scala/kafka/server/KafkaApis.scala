@@ -47,7 +47,8 @@ class KafkaApis(val requestChannel: RequestChannel,
   val fetchRequestPurgatory = new FetchRequestPurgatory(replicaManager, requestChannel)
   // TODO: the following line will be removed in 0.9
   replicaManager.initWithRequestPurgatory(producerRequestPurgatory, fetchRequestPurgatory)
-  var metadataCache = new MetadataCache
+  var metadataCache = new MetadataCache//缓存服务
+  //日志的唯一标识,使用brokerId进行唯一标识
   this.logIdent = "[KafkaApi-%d] ".format(brokerId)
 
   /**
@@ -57,16 +58,16 @@ class KafkaApis(val requestChannel: RequestChannel,
     try{
       //为远程客户端ip发过来的request请求,进行处理
       trace("Handling request: " + request.requestObj + " from client: " + request.remoteAddress)
-      request.requestId match {//根据分类不同,进入不同的处理逻辑
-        case RequestKeys.ProduceKey => handleProducerOrOffsetCommitRequest(request)
+      request.requestId match {
+        case RequestKeys.ProduceKey => handleProducerOrOffsetCommitRequest(request) //处理生产者发到该broker的请求
         case RequestKeys.FetchKey => handleFetchRequest(request)
-        case RequestKeys.OffsetsKey => handleOffsetRequest(request)
+        case RequestKeys.OffsetsKey => handleOffsetRequest(request)//获取topic-partition当前的offset偏移量
         case RequestKeys.MetadataKey => handleTopicMetadataRequest(request)
         case RequestKeys.LeaderAndIsrKey => handleLeaderAndIsrRequest(request)
         case RequestKeys.StopReplicaKey => handleStopReplicaRequest(request)
         case RequestKeys.UpdateMetadataKey => handleUpdateMetadataRequest(request)
         case RequestKeys.ControlledShutdownKey => handleControlledShutdownRequest(request)
-        case RequestKeys.OffsetCommitKey => handleOffsetCommitRequest(request)
+        case RequestKeys.OffsetCommitKey => handleOffsetCommitRequest(request) ////更新topic-partition的offset请求,版本号0的时候走一套老逻辑,版本号>0,则就当生产者请求处理,向特定topic存储该信息
         case RequestKeys.OffsetFetchKey => handleOffsetFetchRequest(request)
         case RequestKeys.ConsumerMetadataKey => handleConsumerMetadataRequest(request)
         case requestId => throw new KafkaException("Unknown api code " + requestId)
@@ -79,18 +80,20 @@ class KafkaApis(val requestChannel: RequestChannel,
       request.apiLocalCompleteTimeMs = SystemTime.milliseconds
   }
 
+  //更新topic-partition的offset请求,版本号0的时候走一套老逻辑,版本号>0,则就当生产者请求处理,向特定topic存储该信息
   def handleOffsetCommitRequest(request: RequestChannel.Request) {
-    val offsetCommitRequest = request.requestObj.asInstanceOf[OffsetCommitRequest]
-    if (offsetCommitRequest.versionId == 0) {
-      // version 0 stores the offsets in ZK
+    val offsetCommitRequest = request.requestObj.asInstanceOf[OffsetCommitRequest] //对象转换
+    if (offsetCommitRequest.versionId == 0) {//如果是版本号0的时候,即老版本
+      // version 0 stores the offsets in ZK 版本号0的时候,不存储在特定的topic中,而是存储在zookeeper中
       val responseInfo = offsetCommitRequest.requestInfo.map{
         case (topicAndPartition, metaAndError) => {
           val topicDirs = new ZKGroupTopicDirs(offsetCommitRequest.groupId, topicAndPartition.topic)
           try {
-            ensureTopicExists(topicAndPartition.topic)
-            if(metaAndError.metadata != null && metaAndError.metadata.length > config.offsetMetadataMaxSize) {
-              (topicAndPartition, ErrorMapping.OffsetMetadataTooLargeCode)
+            ensureTopicExists(topicAndPartition.topic)//确保topic是存在的
+            if(metaAndError.metadata != null && metaAndError.metadata.length > config.offsetMetadataMaxSize) {//信息不允许>设定的最大长度
+              (topicAndPartition, ErrorMapping.OffsetMetadataTooLargeCode)//异常,说message信息太长
             } else {
+              ///consumers/${group}/offsets/${topic}/${partition} 内容是该topic-partition对应存储的offset,版本1之后,已经不存储在该节点上了,存储在特定的topic上
               ZkUtils.updatePersistentPath(zkClient, topicDirs.consumerOffsetDir + "/" +
                 topicAndPartition.partition, metaAndError.offset.toString)
               (topicAndPartition, ErrorMapping.NoError)
@@ -102,7 +105,7 @@ class KafkaApis(val requestChannel: RequestChannel,
       }
       val response = new OffsetCommitResponse(responseInfo, offsetCommitRequest.correlationId)
       requestChannel.sendResponse(new RequestChannel.Response(request, new BoundedByteBufferSend(response)))
-    } else {
+    } else {//新版本,版本号>0,则说明该请求就是一个offset请求,转换成生产者请求即可
       // version 1 and above store the offsets in a special Kafka topic
       handleProducerOrOffsetCommitRequest(request)
     }
@@ -162,20 +165,28 @@ class KafkaApis(val requestChannel: RequestChannel,
     requestChannel.sendResponse(new Response(request, new BoundedByteBufferSend(controlledShutdownResponse)))
   }
 
+  /**
+   * 1.对offset中描述信息超过一定数量的过滤掉
+   * 2.对过滤后的合法数据,转换成message字节数组
+   * 
+   * 该方法主要是对offset请求的转换,转换成一个生产者请求
+   */
   private def producerRequestFromOffsetCommit(offsetCommitRequest: OffsetCommitRequest) = {
     val msgs = offsetCommitRequest.filterLargeMetadata(config.offsetMetadataMaxSize).map {
       case (topicAndPartition, offset) =>
         new Message(
-          bytes = OffsetManager.offsetCommitValue(offset),
-          key = OffsetManager.offsetCommitKey(offsetCommitRequest.groupId, topicAndPartition.topic, topicAndPartition.partition)
+          bytes = OffsetManager.offsetCommitValue(offset),//将偏移量信息转换成字节数组
+          key = OffsetManager.offsetCommitKey(offsetCommitRequest.groupId, topicAndPartition.topic, topicAndPartition.partition) //将group-topic-partition组装成key字节数组
         )
     }.toSeq
 
+    //找到__consumer_offsets--该group对应的partition,以及要向他们发送的信息
     val producerData = mutable.Map(
       TopicAndPartition(OffsetManager.OffsetsTopicName, offsetManager.partitionFor(offsetCommitRequest.groupId)) ->
         new ByteBufferMessageSet(config.offsetsTopicCompressionCodec, msgs:_*)
     )
 
+    //生产者请求
     val request = ProducerRequest(
       correlationId = offsetCommitRequest.correlationId,
       clientId = offsetCommitRequest.clientId,
@@ -188,48 +199,51 @@ class KafkaApis(val requestChannel: RequestChannel,
 
   /**
    * Handle a produce request or offset commit request (which is really a specialized producer request)
+   * 返回值是 produceRequest, offsetCommitRequestOpt,key是生产者发过来的请求或者提交OffsetCommitRequest请求,value分别是none和OffsetCommitRequest对象
    */
   def handleProducerOrOffsetCommitRequest(request: RequestChannel.Request) {
     val (produceRequest, offsetCommitRequestOpt) =
       if (request.requestId == RequestKeys.OffsetCommitKey) {
         val offsetCommitRequest = request.requestObj.asInstanceOf[OffsetCommitRequest]
-        OffsetCommitRequest.changeInvalidTimeToCurrentTime(offsetCommitRequest)
-        (producerRequestFromOffsetCommit(offsetCommitRequest), Some(offsetCommitRequest))
-      } else {
+        OffsetCommitRequest.changeInvalidTimeToCurrentTime(offsetCommitRequest)//填充非法的时间戳
+        (producerRequestFromOffsetCommit(offsetCommitRequest), Some(offsetCommitRequest)) //对offset请求的转换,转换成一个生产者请求
+      } else {//生产者提交的请求
         (request.requestObj.asInstanceOf[ProducerRequest], None)
       }
 
-    if (produceRequest.requiredAcks > 1 || produceRequest.requiredAcks < -1) {
+    if (produceRequest.requiredAcks > 1 || produceRequest.requiredAcks < -1) {//校验回执是否设置正确
       warn(("Client %s from %s sent a produce request with request.required.acks of %d, which is now deprecated and will " +
             "be removed in next release. Valid values are -1, 0 or 1. Please consult Kafka documentation for supported " +
             "and recommended configuration.").format(produceRequest.clientId, request.remoteAddress, produceRequest.requiredAcks))
     }
 
     val sTime = SystemTime.milliseconds
-    val localProduceResults = appendToLocalLog(produceRequest, offsetCommitRequestOpt.nonEmpty)
-    debug("Produce to local log in %d ms".format(SystemTime.milliseconds - sTime))
+    val localProduceResults = appendToLocalLog(produceRequest, offsetCommitRequestOpt.nonEmpty) //向本地的partition中写入数据,返回Iterable[ProduceResult]结果集
+    debug("Produce to local log in %d ms".format(SystemTime.milliseconds - sTime)) //打印写入log花费时间
 
+    //返回有异常的状态码
     val firstErrorCode = localProduceResults.find(_.errorCode != ErrorMapping.NoError).map(_.errorCode).getOrElse(ErrorMapping.NoError)
 
+    //记录多少个partition写入时候有异常
     val numPartitionsInError = localProduceResults.count(_.error.isDefined)
     if(produceRequest.requiredAcks == 0) {
       // no operation needed if producer request.required.acks = 0; however, if there is any exception in handling the request, since
       // no response is expected by the producer the handler will send a close connection response to the socket server
       // to close the socket so that the producer client will know that some exception has happened and will refresh its metadata
-      if (numPartitionsInError != 0) {
+      if (numPartitionsInError != 0) { //有异常信息,因此发送一个关闭连接的回复即可
         info(("Send the close connection response due to error handling produce request " +
           "[clientId = %s, correlationId = %s, topicAndPartition = %s] with Ack=0")
           .format(produceRequest.clientId, produceRequest.correlationId, produceRequest.topicPartitionMessageSizeMap.keySet.mkString(",")))
         requestChannel.closeConnection(request.processor, request)
-      } else {
+      } else {//说明没有任何异常
 
-        if (firstErrorCode == ErrorMapping.NoError)
+        if (firstErrorCode == ErrorMapping.NoError) //更新offset的缓存信息
           offsetCommitRequestOpt.foreach(ocr => offsetManager.putOffsets(ocr.groupId, ocr.requestInfo))
 
-        if (offsetCommitRequestOpt.isDefined) {
+        if (offsetCommitRequestOpt.isDefined) {//说明是offset生产者
           val response = offsetCommitRequestOpt.get.responseFor(firstErrorCode, config.offsetMetadataMaxSize)
-          requestChannel.sendResponse(new RequestChannel.Response(request, new BoundedByteBufferSend(response)))
-        } else
+          requestChannel.sendResponse(new RequestChannel.Response(request, new BoundedByteBufferSend(response)))//返回状态信息
+        } else //说明是普通生产者
           requestChannel.noOperation(request.processor, request)
       }
     } else if (produceRequest.requiredAcks == 1 ||
@@ -247,7 +261,7 @@ class KafkaApis(val requestChannel: RequestChannel,
       requestChannel.sendResponse(new RequestChannel.Response(request, new BoundedByteBufferSend(response)))
     } else {
       // create a list of (topic, partition) pairs to use as keys for this delayed request
-      val producerRequestKeys = produceRequest.data.keys.toSeq
+      val producerRequestKeys = produceRequest.data.keys.toSeq //TopicAndPartition集合
       val statuses = localProduceResults.map(r =>
         r.key -> DelayedProduceResponseStatus(r.end + 1, ProducerResponseStatus(r.errorCode, r.start))).toMap
       val delayedRequest =  new DelayedProduce(
@@ -264,10 +278,11 @@ class KafkaApis(val requestChannel: RequestChannel,
         producerRequestPurgatory.respond(delayedRequest)
     }
 
-    // we do not need the data anymore
+    // we do not need the data anymore 我们不在需要该数据了,则清空数据内容
     produceRequest.emptyData()
   }
 
+  //生产者的结果,某个topic-partition的message的下标从什么到什么
   case class ProduceResult(key: TopicAndPartition, start: Long, end: Long, error: Option[Throwable] = None) {
     def this(key: TopicAndPartition, throwable: Throwable) = 
       this(key, -1L, -1L, Some(throwable))
@@ -280,10 +295,13 @@ class KafkaApis(val requestChannel: RequestChannel,
 
   /**
    * Helper method for handling a parsed producer request
+   * @producerRequest 表示生产者的请求
+   * @isOffsetCommit 因为生产者的请求可能是offset请求,true则表示该生产者是offset请求,发往指定的内部topic信息
+   * 将生产者的信息追加到本地的log中
    */
   private def appendToLocalLog(producerRequest: ProducerRequest, isOffsetCommit: Boolean): Iterable[ProduceResult] = {
-    val partitionAndData: Map[TopicAndPartition, MessageSet] = producerRequest.data
-    trace("Append [%s] to local log ".format(partitionAndData.toString))
+    val partitionAndData: Map[TopicAndPartition, MessageSet] = producerRequest.data //生产者向什么topic-partition发送了哪些信息的映射关系
+    trace("Append [%s] to local log ".format(partitionAndData.toString)) //追加本地log中
     partitionAndData.map {case (topicAndPartition, messages) =>
       try {
         //校验,不允许追加kafka内部的topic,即__consumer_offsets,并且isOffsetCommit=true与__consumer_offsets是topic相对应
@@ -295,11 +313,12 @@ class KafkaApis(val requestChannel: RequestChannel,
         val partitionOpt = replicaManager.getPartition(topicAndPartition.topic, topicAndPartition.partition)
         val info = partitionOpt match {
           case Some(partition) =>
-            partition.appendMessagesToLeader(messages.asInstanceOf[ByteBufferMessageSet],producerRequest.requiredAcks)
+            partition.appendMessagesToLeader(messages.asInstanceOf[ByteBufferMessageSet],producerRequest.requiredAcks) //向本地日志中写入生产者发来的信息
           case None => throw new UnknownTopicOrPartitionException("Partition %s doesn't exist on %d"
-            .format(topicAndPartition, brokerId))
+            .format(topicAndPartition, brokerId)) //打印日志,说明该partition不再该brokerId上
         }
 
+        //显示该partition目前已经追加了多少个message了
         val numAppendedMessages = if (info.firstOffset == -1L || info.lastOffset == -1L) 0 else (info.lastOffset - info.firstOffset + 1)
 
         // update stats for successfully appended bytes and messages as bytesInRate and messageInRate
@@ -403,6 +422,7 @@ class KafkaApis(val requestChannel: RequestChannel,
 
   /**
    * Service the offset request API 
+   * 获取topic-partition符合条件的logSegment文件编号
    */
   def handleOffsetRequest(request: RequestChannel.Request) {
     val offsetRequest = request.requestObj.asInstanceOf[OffsetRequest]
@@ -424,7 +444,7 @@ class KafkaApis(val requestChannel: RequestChannel,
             allOffsets
           } else {
             val hw = localReplica.highWatermark.messageOffset
-            if (allOffsets.exists(_ > hw))
+            if (allOffsets.exists(_ > hw))//查找>hw的序号
               hw +: allOffsets.dropWhile(_ > hw)
             else 
               allOffsets
@@ -451,6 +471,12 @@ class KafkaApis(val requestChannel: RequestChannel,
     requestChannel.sendResponse(new RequestChannel.Response(request, new BoundedByteBufferSend(response)))
   }
   
+  /**
+   * 抓去topic-partition的logSegments日志的起始编号
+   * 1.必须该文件是在本地系统中
+   * 2.抓去条件是日志的修改时间必须是timestamp之前写进去的
+   * 3.最多抓去maxNumOffsets个logSegments日志的起始编号
+   */
   def fetchOffsets(logManager: LogManager, topicAndPartition: TopicAndPartition, timestamp: Long, maxNumOffsets: Int): Seq[Long] = {
     logManager.getLog(topicAndPartition) match {
       case Some(log) => 
@@ -463,9 +489,13 @@ class KafkaApis(val requestChannel: RequestChannel,
     }
   }
   
+  /**
+   * 抓去log日志的logSegments的起始编号,最多抓去maxNumOffsets个logSegments日志的起始编号
+   * 抓去条件是日志的修改时间必须是timestamp之前写进去的
+   */
   def fetchOffsetsBefore(log: Log, timestamp: Long, maxNumOffsets: Int): Seq[Long] = {
-    val segsArray = log.logSegments.toArray
-    var offsetTimeArray: Array[(Long, Long)] = null
+    val segsArray = log.logSegments.toArray//记录该log所有的logSegments文件
+    var offsetTimeArray: Array[(Long, Long)] = null //设置该log所有的logSegments文件对应的起始编号以及文件最后修改时间
     if(segsArray.last.size > 0)
       offsetTimeArray = new Array[(Long, Long)](segsArray.length + 1)
     else
@@ -474,9 +504,9 @@ class KafkaApis(val requestChannel: RequestChannel,
     for(i <- 0 until segsArray.length)
       offsetTimeArray(i) = (segsArray(i).baseOffset, segsArray(i).lastModified)
     if(segsArray.last.size > 0)
-      offsetTimeArray(segsArray.length) = (log.logEndOffset, SystemTime.milliseconds)
+      offsetTimeArray(segsArray.length) = (log.logEndOffset, SystemTime.milliseconds) //记录当前文件的正在写的编号以及当前时间
 
-    var startIndex = -1
+    var startIndex = -1//从什么索引开始查找数据
     timestamp match {
       case OffsetRequest.LatestTime =>
         startIndex = offsetTimeArray.length - 1
@@ -486,18 +516,18 @@ class KafkaApis(val requestChannel: RequestChannel,
         var isFound = false
         debug("Offset time array = " + offsetTimeArray.foreach(o => "%d, %d".format(o._1, o._2)))
         startIndex = offsetTimeArray.length - 1
-        while (startIndex >= 0 && !isFound) {
-          if (offsetTimeArray(startIndex)._2 <= timestamp)
+        while (startIndex >= 0 && !isFound) {//从后往前查找,直到找到了位置
+          if (offsetTimeArray(startIndex)._2 <= timestamp) //找到时间戳之前存储的文件
             isFound = true
           else
             startIndex -=1
         }
     }
 
-    val retSize = maxNumOffsets.min(startIndex + 1)
+    val retSize = maxNumOffsets.min(startIndex + 1)//maxNumOffsets与startIndex + 1取最小的值
     val ret = new Array[Long](retSize)
     for(j <- 0 until retSize) {
-      ret(j) = offsetTimeArray(startIndex)._1
+      ret(j) = offsetTimeArray(startIndex)._1//设置该文件的起始编号
       startIndex -= 1
     }
     // ensure that the returned seq is in descending order of offsets
@@ -506,8 +536,8 @@ class KafkaApis(val requestChannel: RequestChannel,
 
   private def getTopicMetadata(topics: Set[String]): Seq[TopicMetadata] = {
     val topicResponses = metadataCache.getTopicMetadata(topics)
-    if (topics.size > 0 && topicResponses.size != topics.size) {
-      val nonExistentTopics = topics -- topicResponses.map(_.topic).toSet
+    if (topics.size > 0 && topicResponses.size != topics.size) {//说明请求的topic和返回的topic数量不一致
+      val nonExistentTopics = topics -- topicResponses.map(_.topic).toSet//找到差异在哪些topic上
       val responsesForNonExistentTopics = nonExistentTopics.map { topic =>
         if (topic == OffsetManager.OffsetsTopicName || config.autoCreateTopicsEnable) {
           try {
@@ -548,7 +578,7 @@ class KafkaApis(val requestChannel: RequestChannel,
   def handleTopicMetadataRequest(request: RequestChannel.Request) {
     val metadataRequest = request.requestObj.asInstanceOf[TopicMetadataRequest]
     val topicMetadata = getTopicMetadata(metadataRequest.topics.toSet)
-    val brokers = metadataCache.getAliveBrokers
+    val brokers = metadataCache.getAliveBrokers//返回Seq[Broker],所有的节点集合
     trace("Sending topic metadata %s and brokers %s for correlation id %d to client %s".format(topicMetadata.mkString(","), brokers.mkString(","), metadataRequest.correlationId, metadataRequest.clientId))
     val response = new TopicMetadataResponse(brokers, topicMetadata, metadataRequest.correlationId)
     requestChannel.sendResponse(new RequestChannel.Response(request, new BoundedByteBufferSend(response)))

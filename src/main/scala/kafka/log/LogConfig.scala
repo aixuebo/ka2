@@ -129,7 +129,7 @@ object LogConfig {
   val DeleteRetentionMsProp = "delete.retention.ms"
   val FileDeleteDelayMsProp = "file.delete.delay.ms"
   val MinCleanableDirtyRatioProp = "min.cleanable.dirty.ratio"
-  val CleanupPolicyProp = "cleanup.policy"
+  val CleanupPolicyProp = "cleanup.policy"//清理策略,比如是compact,即紧凑,删除一些历史信息
   val UncleanLeaderElectionEnableProp = "unclean.leader.election.enable"
   
   val MinInSyncReplicasProp = "min.insync.replicas" //表示partition的最小同步数量,即达到该数量的备份数,就可以认为是成功备份了

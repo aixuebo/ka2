@@ -206,7 +206,7 @@ public abstract class Type {
             int pos = arg.position();
             buffer.putInt(arg.remaining());//写入limit-position,即有效字节长度
             buffer.put(arg);
-            arg.position(pos);
+            arg.position(pos);//将对象o还原到初始位置
         }
 
         @Override

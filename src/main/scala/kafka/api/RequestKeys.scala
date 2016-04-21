@@ -24,13 +24,13 @@ import java.nio.ByteBuffer
 object RequestKeys {
   val ProduceKey: Short = 0//生产者请求
   val FetchKey: Short = 1//抓取某些个topic的某些partition,从offset开始,抓取fetchSize个数据,同时也用于partition数据从follow节点同步leader节点数据,参见ReplicaFetcherThread、AbstractFetcherThread
-  val OffsetsKey: Short = 2
+  val OffsetsKey: Short = 2//获取topic-partition当前的offset偏移量
   val MetadataKey: Short = 3//获取topic元数据信息请求,参见TopicMetadataRequest
   val LeaderAndIsrKey: Short = 4//更新每一个topic-partition对应的leader和同步节点集合,参见LeaderAndIsrRequest
   val StopReplicaKey: Short = 5
   val UpdateMetadataKey: Short = 6//更新现在活着的brokerId,以及topic-partition-PartitionStateInfo映射关系,参见UpdateMetadataRequest和MetadataCache
   val ControlledShutdownKey: Short = 7
-  val OffsetCommitKey: Short = 8
+  val OffsetCommitKey: Short = 8 //更新topic-partition的offset请求,版本号0的时候走一套老逻辑,版本号>0,则就当生产者请求处理,向特定topic存储该信息
   val OffsetFetchKey: Short = 9
   val ConsumerMetadataKey: Short = 10
   val JoinGroupKey: Short = 11

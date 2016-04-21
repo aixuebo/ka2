@@ -23,6 +23,7 @@ import scala.Predef._
 
 /**
  * A bi-directional mapping between error codes and exceptions
+ * 异常的映射
  */
 object ErrorMapping {
   val EmptyByteBuffer = ByteBuffer.allocate(0)
@@ -34,13 +35,13 @@ object ErrorMapping {
   val UnknownTopicOrPartitionCode : Short = 3 //没有topic-partition信息
   val InvalidFetchSizeCode  : Short = 4
   val LeaderNotAvailableCode : Short = 5
-  val NotLeaderForPartitionCode : Short = 6
+  val NotLeaderForPartitionCode : Short = 6 //partition没有leader
   val RequestTimedOutCode: Short = 7
   val BrokerNotAvailableCode: Short = 8
   val ReplicaNotAvailableCode: Short = 9
   val MessageSizeTooLargeCode: Short = 10
   val StaleControllerEpochCode: Short = 11//controller的epoche版本号异常
-  val OffsetMetadataTooLargeCode: Short = 12
+  val OffsetMetadataTooLargeCode: Short = 12 //offset的描述信息过长
   val StaleLeaderEpochCode: Short = 13
   val OffsetsLoadInProgressCode: Short = 14//偏移量信息正在被加载,参见OffsetManager的getOffsets方法
   val ConsumerCoordinatorNotAvailableCode: Short = 15

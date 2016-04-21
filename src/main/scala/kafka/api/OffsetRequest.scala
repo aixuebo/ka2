@@ -30,8 +30,8 @@ object OffsetRequest {
 
   val SmallestTimeString = "smallest"
   val LargestTimeString = "largest"
-  val LatestTime = -1L
-  val EarliestTime = -2L
+  val LatestTime = -1L//最后一个索引
+  val EarliestTime = -2L//第一个索引
 
   def readFrom(buffer: ByteBuffer): OffsetRequest = {
     val versionId = buffer.getShort
@@ -55,9 +55,12 @@ object OffsetRequest {
 
 case class PartitionOffsetRequestInfo(time: Long, maxNumOffsets: Int)
 
+/**
+ * 记录每一个topic-partition的时间戳以及最大的offset偏移量,将其发送给broker节点,broker节点返回topic-partition当前的offset偏移量
+ */
 case class OffsetRequest(requestInfo: Map[TopicAndPartition, PartitionOffsetRequestInfo],
-                         versionId: Short = OffsetRequest.CurrentVersion,
-                         correlationId: Int = 0,
+                         versionId: Short = OffsetRequest.CurrentVersion,//OffsetRequest对象的版本号
+                         correlationId: Int = 0,//客户端唯一标识ID
                          clientId: String = OffsetRequest.DefaultClientId,
                          replicaId: Int = Request.OrdinaryConsumerId)
     extends RequestOrResponse(Some(RequestKeys.OffsetsKey)) {
@@ -73,16 +76,16 @@ case class OffsetRequest(requestInfo: Map[TopicAndPartition, PartitionOffsetRequ
     writeShortString(buffer, clientId)
     buffer.putInt(replicaId)
 
-    buffer.putInt(requestInfoGroupedByTopic.size) // topic count
+    buffer.putInt(requestInfoGroupedByTopic.size) // topic count 一共多少个topic
     requestInfoGroupedByTopic.foreach {
       case((topic, partitionInfos)) =>
-        writeShortString(buffer, topic)
-        buffer.putInt(partitionInfos.size) // partition count
+        writeShortString(buffer, topic) //写入topic信息
+        buffer.putInt(partitionInfos.size) // partition count 写入多少个partition
         partitionInfos.foreach {
           case (TopicAndPartition(_, partition), partitionInfo) =>
-            buffer.putInt(partition)
-            buffer.putLong(partitionInfo.time)
-            buffer.putInt(partitionInfo.maxNumOffsets)
+            buffer.putInt(partition) //写入每一个partitionId
+            buffer.putLong(partitionInfo.time) //写入时间戳
+            buffer.putInt(partitionInfo.maxNumOffsets) //写入最大偏移量
         }
     }
   }

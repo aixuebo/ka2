@@ -965,6 +965,7 @@ class ZKGroupDirs(val group: String) {
 
 /**
  * /consumers/${group}/offsets/${topic}
+ * /consumers/${group}/offsets/${topic}/${partition} 内容是该topic-partition对应存储的offset,版本1之后,已经不存储在该节点上了,存储在特定的topic上
  * /consumers/${owners}/offsets/${topic}
  */
 class ZKGroupTopicDirs(group: String, topic: String) extends ZKGroupDirs(group) {

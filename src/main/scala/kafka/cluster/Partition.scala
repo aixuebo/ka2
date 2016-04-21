@@ -418,7 +418,7 @@ class Partition(val topic: String,
     stuckReplicas ++ slowReplicas
   }
 
-  //向该partition的leader中追加一条ByteBufferMessageSet信息
+  //向本地的partition的leader中追加一条ByteBufferMessageSet信息
   def appendMessagesToLeader(messages: ByteBufferMessageSet, requiredAcks: Int=0) = {
     inReadLock(leaderIsrUpdateLock) {
       val leaderReplicaOpt = leaderReplicaIfLocal()

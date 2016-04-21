@@ -26,7 +26,7 @@ object Topic {
   private val maxNameLength = 255//topic的name最长长度
   private val rgx = new Regex(legalChars + "+")
 
-  val InternalTopics = Set(OffsetManager.OffsetsTopicName)
+  val InternalTopics = Set(OffsetManager.OffsetsTopicName) //内部的topic,用于存储offset信息
 
   def validate(topic: String) {
     if (topic.length <= 0)

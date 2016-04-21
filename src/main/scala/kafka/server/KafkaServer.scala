@@ -50,9 +50,9 @@ class KafkaServer(val config: KafkaConfig, time: Time = SystemTime) extends Logg
   var socketServer: SocketServer = null//服务端
   var requestHandlerPool: KafkaRequestHandlerPool = null
   var logManager: LogManager = null
-  var offsetManager: OffsetManager = null
+  var offsetManager: OffsetManager = null //用于在本地服务器记录topic-partition的偏移量信息
   var kafkaHealthcheck: KafkaHealthcheck = null//将该brokerId注册到zookeeper中,健康该broker节点是否健康
-  var topicConfigManager: TopicConfigManager = null
+  var topicConfigManager: TopicConfigManager = null //为该broker节点更新topic的配置信息
   var replicaManager: ReplicaManager = null
   var apis: KafkaApis = null
   var kafkaController: KafkaController = null
@@ -75,7 +75,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = SystemTime) extends Logg
   def startup() {
     try {
       info("starting")
-      brokerState.newState(Starting)
+      brokerState.newState(Starting) //服务器正在开启中
       isShuttingDown = new AtomicBoolean(false)
       shutdownLatch = new CountDownLatch(1)
 
@@ -140,10 +140,11 @@ class KafkaServer(val config: KafkaConfig, time: Time = SystemTime) extends Logg
     }
   }
 
+  //初始化zookeeper
   private def initZk(): ZkClient = {
     info("Connecting to zookeeper on " + config.zkConnect)
 
-    //连接zookeeper后,创建一个node节点chroot
+    //连接zookeeper后,创建一个node节点chroot,如果存在chroot,则该参数的目标是确保chroot的path是存在的
     val chroot = {
       if (config.zkConnect.indexOf("/") > 0)
         config.zkConnect.substring(config.zkConnect.indexOf("/"))
@@ -151,7 +152,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = SystemTime) extends Logg
         ""
     }
 
-    if (chroot.length > 1) {
+    if (chroot.length > 1) {//说明url中带有chroot
       val zkConnForChrootCreation = config.zkConnect.substring(0, config.zkConnect.indexOf("/"))
       val zkClientForChrootCreation = new ZkClient(zkConnForChrootCreation, config.zkSessionTimeoutMs, config.zkConnectionTimeoutMs, ZKStringSerializer)
       ZkUtils.makeSurePersistentPathExists(zkClientForChrootCreation, chroot)

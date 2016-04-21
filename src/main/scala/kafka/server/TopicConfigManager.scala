@@ -131,12 +131,12 @@ class TopicConfigManager(private val zkClient: ZkClient,
   //删除一些过期节点
   private def purgeObsoleteNotifications(now: Long, notifications: Seq[String]) {
     for(notification <- notifications.sorted) {
-      val (jsonOpt, stat) = ZkUtils.readDataMaybeNull(zkClient, ZkUtils.TopicConfigChangesPath + "/" + notification)
+      val (jsonOpt, stat) = ZkUtils.readDataMaybeNull(zkClient, ZkUtils.TopicConfigChangesPath + "/" + notification) //读取该topic配置文件更改路径
       if(jsonOpt.isDefined) {
         val changeZnode = ZkUtils.TopicConfigChangesPath + "/" + notification
-        if (now - stat.getCtime > changeExpirationMs) {
+        if (now - stat.getCtime > changeExpirationMs) {//超过了过期时间的,则都删除掉
           debug("Purging config change notification " + notification)
-          ZkUtils.deletePath(zkClient, changeZnode)
+          ZkUtils.deletePath(zkClient, changeZnode) //删除该更新过的topic的配置文件提示节点
         } else {
           return
         }
