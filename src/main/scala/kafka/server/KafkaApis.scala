@@ -60,16 +60,20 @@ class KafkaApis(val requestChannel: RequestChannel,
       trace("Handling request: " + request.requestObj + " from client: " + request.remoteAddress)
       request.requestId match {
         case RequestKeys.ProduceKey => handleProducerOrOffsetCommitRequest(request) //处理生产者发到该broker的请求
-        case RequestKeys.FetchKey => handleFetchRequest(request)
-        case RequestKeys.OffsetsKey => handleOffsetRequest(request)//获取topic-partition当前的offset偏移量
-        case RequestKeys.MetadataKey => handleTopicMetadataRequest(request)
+        case RequestKeys.ConsumerMetadataKey => handleConsumerMetadataRequest(request)//获取制定group所在的offset的topic所在partition的leader节点
+        
+        case RequestKeys.MetadataKey => handleTopicMetadataRequest(request)//获取TopicMetadata元数据信息
+        case RequestKeys.UpdateMetadataKey => handleUpdateMetadataRequest(request)//更新元数据
+        
         case RequestKeys.LeaderAndIsrKey => handleLeaderAndIsrRequest(request)
         case RequestKeys.StopReplicaKey => handleStopReplicaRequest(request)
-        case RequestKeys.UpdateMetadataKey => handleUpdateMetadataRequest(request)
         case RequestKeys.ControlledShutdownKey => handleControlledShutdownRequest(request)
+        
+        case RequestKeys.OffsetsKey => handleOffsetRequest(request)//获取topic-partition当前的offset偏移量
         case RequestKeys.OffsetCommitKey => handleOffsetCommitRequest(request) ////更新topic-partition的offset请求,版本号0的时候走一套老逻辑,版本号>0,则就当生产者请求处理,向特定topic存储该信息
-        case RequestKeys.OffsetFetchKey => handleOffsetFetchRequest(request)
-        case RequestKeys.ConsumerMetadataKey => handleConsumerMetadataRequest(request)
+        
+        case RequestKeys.FetchKey => handleFetchRequest(request)//key表示抓取哪个topic-partition数据,value表示从offset开始抓取,抓取多少个数据返回
+        case RequestKeys.OffsetFetchKey => handleOffsetFetchRequest(request)//抓去每一个topic-partition对应的offset最新信息
         case requestId => throw new KafkaException("Unknown api code " + requestId)
       }
     } catch {
@@ -123,7 +127,7 @@ class KafkaApis(val requestChannel: RequestChannel,
     // ensureTopicExists is only for client facing requests
     // We can't have the ensureTopicExists check here since the controller sends it as an advisory to all brokers so they
     // stop serving data to clients for the topic being deleted
-    val leaderAndIsrRequest = request.requestObj.asInstanceOf[LeaderAndIsrRequest]//强转
+    val leaderAndIsrRequest = request.requestObj.asInstanceOf[LeaderAndIsrRequest]
     try {
       val (response, error) = replicaManager.becomeLeaderOrFollower(leaderAndIsrRequest, offsetManager)
       val leaderAndIsrResponse = new LeaderAndIsrResponse(leaderAndIsrRequest.correlationId, response, error)
@@ -366,33 +370,38 @@ class KafkaApis(val requestChannel: RequestChannel,
 
   /**
    * Handle a fetch request
+   * key表示抓取哪个topic-partition数据,value表示从offset开始抓取,抓取多少个数据返回
    */
   def handleFetchRequest(request: RequestChannel.Request) {
     val fetchRequest = request.requestObj.asInstanceOf[FetchRequest]
+    //返回值Map[TopicAndPartition, PartitionDataAndOffset],即在topic-partition 抓去了哪些信息
     val dataRead = replicaManager.readMessageSets(fetchRequest)
 
     // if the fetch request comes from the follower,
     // update its corresponding log end offset
+    //如果该请求来自于follower节点,则更新操作
     if(fetchRequest.isFromFollower)
-      recordFollowerLogEndOffsets(fetchRequest.replicaId, dataRead.mapValues(_.offset))
+      recordFollowerLogEndOffsets(fetchRequest.replicaId, dataRead.mapValues(_.offset))//记录该follower节点replicaId,已经同步给他了每一个topic-partition到哪个offset了
 
     // check if this fetch request can be satisfied right away
-    val bytesReadable = dataRead.values.map(_.data.messages.sizeInBytes).sum
+    val bytesReadable = dataRead.values.map(_.data.messages.sizeInBytes).sum//本次读取了多少个字节的数据
+    //从左计算到右边,默认是false,查看是否有error信息
     val errorReadingData = dataRead.values.foldLeft(false)((errorIncurred, dataAndOffset) =>
       errorIncurred || (dataAndOffset.data.error != ErrorMapping.NoError))
-    // send the data immediately if 1) fetch request does not want to wait
-    //                              2) fetch request does not require any data
-    //                              3) has enough data to respond
-    //                              4) some error happens while reading data
+    // send the data immediately 如果满足以下四个条件的,则数据立即发送到客户端,即 例如follower节点
+    //                           if 1) fetch request does not want to wait 抓去的请求不需要等待,抓去到了,就发送
+    //                              2) fetch request does not require any data 抓去请求中没有任何要抓去的partition请求
+    //                              3) has enough data to respond 已经有足够多的数据了,可以发送回去了
+    //                              4) some error happens while reading data 在读数据的过程中,有一些异常发生了,也要立即发送出去
     if(fetchRequest.maxWait <= 0 ||
-       fetchRequest.numPartitions <= 0 ||
-       bytesReadable >= fetchRequest.minBytes ||
-       errorReadingData) {
+       fetchRequest.numPartitions <= 0 || //没有partition要去抓去
+       bytesReadable >= fetchRequest.minBytes ||//说明读取的数据量已经够多了
+       errorReadingData) {//有异常
       debug("Returning fetch response %s for fetch request with correlation id %d to client %s"
         .format(dataRead.values.map(_.data.error).mkString(","), fetchRequest.correlationId, fetchRequest.clientId))
-      val response = new FetchResponse(fetchRequest.correlationId, dataRead.mapValues(_.data))
+      val response = new FetchResponse(fetchRequest.correlationId, dataRead.mapValues(_.data))//把数据返回给客户端
       requestChannel.sendResponse(new RequestChannel.Response(request, new FetchResponseSend(response)))
-    } else {
+    } else {//说明暂时不发送数据给客户端,要存放一阵子
       debug("Putting fetch request with correlation id %d from client %s into purgatory".format(fetchRequest.correlationId,
         fetchRequest.clientId))
       // create a list of (topic, partition) pairs to use as keys for this delayed request
@@ -407,6 +416,7 @@ class KafkaApis(val requestChannel: RequestChannel,
     }
   }
 
+  //记录该follower节点replicaId,已经同步给他了每一个topic-partition到哪个offset了
   private def recordFollowerLogEndOffsets(replicaId: Int, offsets: Map[TopicAndPartition, LogOffsetMetadata]) {
     debug("Record follower log end offsets: %s ".format(offsets))
     offsets.foreach {
@@ -534,14 +544,17 @@ class KafkaApis(val requestChannel: RequestChannel,
     ret.toSeq.sortBy(- _)
   }
 
+  /**
+   * 根据topic集合,返回该集合对应的元数据信息集合
+   */
   private def getTopicMetadata(topics: Set[String]): Seq[TopicMetadata] = {
     val topicResponses = metadataCache.getTopicMetadata(topics)
     if (topics.size > 0 && topicResponses.size != topics.size) {//说明请求的topic和返回的topic数量不一致
       val nonExistentTopics = topics -- topicResponses.map(_.topic).toSet//找到差异在哪些topic上
       val responsesForNonExistentTopics = nonExistentTopics.map { topic =>
-        if (topic == OffsetManager.OffsetsTopicName || config.autoCreateTopicsEnable) {
+        if (topic == OffsetManager.OffsetsTopicName || config.autoCreateTopicsEnable) {//自动创建该topic
           try {
-            if (topic == OffsetManager.OffsetsTopicName) {
+            if (topic == OffsetManager.OffsetsTopicName) {//topic是内部定义的offset所属的topic
               val aliveBrokers = metadataCache.getAliveBrokers
               val offsetsTopicReplicationFactor =
                 if (aliveBrokers.length > 0)
@@ -554,7 +567,7 @@ class KafkaApis(val requestChannel: RequestChannel,
               info("Auto creation of topic %s with %d partitions and replication factor %d is successful!"
                 .format(topic, config.offsetsTopicPartitions, offsetsTopicReplicationFactor))
             }
-            else {
+            else {//说明是自动创建该topic
               AdminUtils.createTopic(zkClient, topic, config.numPartitions, config.defaultReplicationFactor)
               info("Auto creation of topic %s with %d partitions and replication factor %d is successful!"
                    .format(topic, config.numPartitions, config.defaultReplicationFactor))
@@ -564,7 +577,7 @@ class KafkaApis(val requestChannel: RequestChannel,
           }
           new TopicMetadata(topic, Seq.empty[PartitionMetadata], ErrorMapping.LeaderNotAvailableCode)
         } else {
-          new TopicMetadata(topic, Seq.empty[PartitionMetadata], ErrorMapping.UnknownTopicOrPartitionCode)
+          new TopicMetadata(topic, Seq.empty[PartitionMetadata], ErrorMapping.UnknownTopicOrPartitionCode)//报告缺失该topic信息
         }
       }
       topicResponses.appendAll(responsesForNonExistentTopics)
@@ -574,10 +587,11 @@ class KafkaApis(val requestChannel: RequestChannel,
 
   /**
    * Service the topic metadata request API
+   * 获取TopicMetadata元数据信息
    */
   def handleTopicMetadataRequest(request: RequestChannel.Request) {
     val metadataRequest = request.requestObj.asInstanceOf[TopicMetadataRequest]
-    val topicMetadata = getTopicMetadata(metadataRequest.topics.toSet)
+    val topicMetadata = getTopicMetadata(metadataRequest.topics.toSet)//获取topic对应的元数据信息集合
     val brokers = metadataCache.getAliveBrokers//返回Seq[Broker],所有的节点集合
     trace("Sending topic metadata %s and brokers %s for correlation id %d to client %s".format(topicMetadata.mkString(","), brokers.mkString(","), metadataRequest.correlationId, metadataRequest.clientId))
     val response = new TopicMetadataResponse(brokers, topicMetadata, metadataRequest.correlationId)
@@ -586,11 +600,12 @@ class KafkaApis(val requestChannel: RequestChannel,
 
   /*
    * Service the Offset fetch API
+   * 抓去每一个topic-partition对应的offset最新信息
    */
   def handleOffsetFetchRequest(request: RequestChannel.Request) {
     val offsetFetchRequest = request.requestObj.asInstanceOf[OffsetFetchRequest]
 
-    if (offsetFetchRequest.versionId == 0) {
+    if (offsetFetchRequest.versionId == 0) {//从zookeeper中获取offset信息
       // version 0 reads offsets from ZK
       val responseInfo = offsetFetchRequest.requestInfo.map( t => {
         val topicDirs = new ZKGroupTopicDirs(offsetFetchRequest.groupId, t.topic)
@@ -612,18 +627,20 @@ class KafkaApis(val requestChannel: RequestChannel,
       })
       val response = new OffsetFetchResponse(collection.immutable.Map(responseInfo: _*), offsetFetchRequest.correlationId)
       requestChannel.sendResponse(new RequestChannel.Response(request, new BoundedByteBufferSend(response)))
-    } else {
-      // version 1 reads offsets from Kafka
+    } else {//从kafka的特定topic中获取offset信息
+      // version 1 reads offsets from Kafka按照是否缓存中存在topic-partition进行拆分,成两个集合,一个是不存在的集合,一个是存在的集合
       val (unknownTopicPartitions, knownTopicPartitions) = offsetFetchRequest.requestInfo.partition(topicAndPartition =>
         metadataCache.getPartitionInfo(topicAndPartition.topic, topicAndPartition.partition).isEmpty
       )
+      //将不存在的topic-partition改成Map[TopicAndPartition, OffsetMetadataAndError],其中异常原因是不存在该topic-partition
       val unknownStatus = unknownTopicPartitions.map(topicAndPartition => (topicAndPartition, OffsetMetadataAndError.UnknownTopicOrPartition)).toMap
+      // Map[TopicAndPartition, OffsetMetadataAndError]将存在的topic-partition查找他的offset信息
       val knownStatus =
         if (knownTopicPartitions.size > 0)
           offsetManager.getOffsets(offsetFetchRequest.groupId, knownTopicPartitions).toMap
         else
-          Map.empty[TopicAndPartition, OffsetMetadataAndError]
-      val status = unknownStatus ++ knownStatus
+          Map.empty[TopicAndPartition, OffsetMetadataAndError]//说明没有topic-partition信息
+      val status = unknownStatus ++ knownStatus//汇总集合
 
       val response = OffsetFetchResponse(status, offsetFetchRequest.correlationId)
 
@@ -635,18 +652,23 @@ class KafkaApis(val requestChannel: RequestChannel,
 
   /*
    * Service the consumer metadata API
+   * 获取制定group所在的offset的topic所在partition的leader节点
    */
   def handleConsumerMetadataRequest(request: RequestChannel.Request) {
     val consumerMetadataRequest = request.requestObj.asInstanceOf[ConsumerMetadataRequest]
 
-    val partition = offsetManager.partitionFor(consumerMetadataRequest.group)
+    val partition = offsetManager.partitionFor(consumerMetadataRequest.group)//在哪个partition中
 
-    // get metadata (and create the topic if necessary)
+    // get metadata (and create the topic if necessary) 获取offset的topic的元数据
     val offsetsTopicMetadata = getTopicMetadata(Set(OffsetManager.OffsetsTopicName)).head
 
     //默认返回值
     val errorResponse = ConsumerMetadataResponse(None, ErrorMapping.ConsumerCoordinatorNotAvailableCode, consumerMetadataRequest.correlationId)
 
+    /**
+     * 1.查找指定partition的元数据PartitionMetadata
+     * 2.找到该partition对应的leader节点
+     */
     val response =
       offsetsTopicMetadata.partitionsMetadata.find(_.partitionId == partition).map { partitionMetadata =>
         partitionMetadata.leader.map { leader =>

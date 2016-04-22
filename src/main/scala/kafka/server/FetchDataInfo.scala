@@ -19,5 +19,5 @@ package kafka.server
 
 import kafka.message.MessageSet
 
-//抓取数据的返回值,参见Log对象的read方法
+//follower节点去leader节点抓取数据的返回值,参见Log对象的read方法
 case class FetchDataInfo(fetchOffset: LogOffsetMetadata, messageSet: MessageSet)

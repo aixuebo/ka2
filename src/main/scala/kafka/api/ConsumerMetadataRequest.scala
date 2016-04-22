@@ -39,7 +39,7 @@ object ConsumerMetadataRequest {
 
 }
 
-case class ConsumerMetadataRequest(group: String,
+case class ConsumerMetadataRequest(group: String,//通过group 决定该group在offset的topic的哪个partiton中
                                    versionId: Short = ConsumerMetadataRequest.CurrentVersion,
                                    correlationId: Int = 0,
                                    clientId: String = ConsumerMetadataRequest.DefaultClientId)

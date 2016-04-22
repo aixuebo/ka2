@@ -74,12 +74,14 @@ abstract class AbstractFetcherManager(protected val name: String, clientId: Stri
 
   // to be defined in subclass to create a specific fetcher
   //参数fetcherId表示第几个线程,sourceBroker表示请求的节点,创建一个抓取请求
+  //即在第几个线程上创建连接一个broker节点的请求
   def createFetcherThread(fetcherId: Int, sourceBroker: Broker): AbstractFetcherThread
 
   //为partition添加到抓取线程中
   def addFetcherForPartitions(partitionAndOffsets: Map[TopicAndPartition, BrokerAndInitialOffset]) {
     mapLock synchronized {
-      //Map[BrokerAndFetcherId, Map[TopicAndPartition, BrokerAndInitialOffset]] 按照BrokerAndFetcherId对要抓取的partition分组
+      //Map[BrokerAndFetcherId, Map[TopicAndPartition, BrokerAndInitialOffset]] 按照BrokerAndFetcherId对要抓取的partition分组,
+      //即在该broker上使用第几个线程去抓去数据,同时抓去的都是该节点上存储的topic-partition的数据,从什么起始位置开始抓去
       val partitionsPerFetcher = partitionAndOffsets.groupBy{ case(topicAndPartition, brokerAndInitialOffset) =>
         BrokerAndFetcherId(brokerAndInitialOffset.broker, getFetcherId(topicAndPartition.topic, topicAndPartition.partition))}
       
@@ -89,7 +91,7 @@ abstract class AbstractFetcherManager(protected val name: String, clientId: Stri
         fetcherThreadMap.get(brokerAndFetcherId) match {
           case Some(f) => fetcherThread = f
           case None =>
-            fetcherThread = createFetcherThread(brokerAndFetcherId.fetcherId, brokerAndFetcherId.broker)
+            fetcherThread = createFetcherThread(brokerAndFetcherId.fetcherId, brokerAndFetcherId.broker)//在第几个线程上创建连接一个broker节点的请求
             fetcherThreadMap.put(brokerAndFetcherId, fetcherThread)
             fetcherThread.start
         }

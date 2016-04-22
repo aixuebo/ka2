@@ -25,6 +25,23 @@ import kafka.common._
 import org.apache.kafka.common.utils.Utils._
 
 //记录一个topic拥有一个PartitionMetadata集合的信息
+/**
+ * 获取topic的元数据信息
+二、topic的结构
+topic名字
+partition结构集合
+属性:
+NoLeaderNodeId 如果是-1表示没有为partition设置leader,即该topic的所有partition是不具备高可用的
+
+三、partition结构
+partitionId 属于第几个partition
+leaderId 该partition的leader所在的brokerId
+leader 该leaderId对应的Broker对象
+replicaIds 该备份的Broker节点ID集合
+replicas 该备份的Broker节点Broker对象集合
+isrIds
+isr
+ */
 object TopicMetadata {
   
   val NoLeaderNodeId = -1//该topic下所有的partition中是没有leader的,即没有设置replicas复制功能
@@ -44,6 +61,23 @@ object TopicMetadata {
   }
 }
 
+/**
+ * 获取topic的元数据信息
+二、topic的结构
+topic名字
+partition结构集合
+属性:
+NoLeaderNodeId 如果是-1表示没有为partition设置leader,即该topic的所有partition是不具备高可用的
+
+三、partition结构
+partitionId 属于第几个partition
+leaderId 该partition的leader所在的brokerId
+leader 该leaderId对应的Broker对象
+replicaIds 该备份的Broker节点ID集合
+replicas 该备份的Broker节点Broker对象集合
+isrIds
+isr
+ */
 case class TopicMetadata(topic: String, partitionsMetadata: Seq[PartitionMetadata], errorCode: Short = ErrorMapping.NoError) extends Logging {
   
   //该topic对应的PartitionMetadata集合需要多少个字节大小请求

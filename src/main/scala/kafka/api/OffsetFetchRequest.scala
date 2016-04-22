@@ -24,10 +24,15 @@ import kafka.utils.Logging
 import kafka.network.{BoundedByteBufferSend, RequestChannel}
 import kafka.network.RequestChannel.Response
 import kafka.common.{OffsetAndMetadata, ErrorMapping, OffsetMetadataAndError, TopicAndPartition}
+
+/**
+ * 抓去每一个topic-partition对应的offset最新信息
+ */
 object OffsetFetchRequest extends Logging {
   // version 0 and 1 have exactly the same wire format, but different functionality.
   // version 0 will read the offsets from ZK and version 1 will read the offsets from Kafka.
-  val CurrentVersion: Short = 1
+  //有过两次更新版本,0的时候offset信息存储在zookeeper中,1的时候存储在kafka指定的topic中
+  val CurrentVersion: Short = 1//OffsetFetchRequest对象的版本号
   val DefaultClientId = ""
 
   def readFrom(buffer: ByteBuffer): OffsetFetchRequest = {
@@ -51,6 +56,9 @@ object OffsetFetchRequest extends Logging {
   }
 }
 
+/**
+ * 抓去每一个topic-partition对应的offset最新信息
+ */
 case class OffsetFetchRequest(groupId: String,
                               requestInfo: Seq[TopicAndPartition],
                               versionId: Short = OffsetFetchRequest.CurrentVersion,

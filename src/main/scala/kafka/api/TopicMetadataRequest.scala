@@ -27,6 +27,7 @@ import kafka.utils.Logging
 
 /**
  * 为topic抓取元数据的请求
+ * 即准备获取哪些topic的元数据信息
  */
 object TopicMetadataRequest extends Logging {
   val CurrentVersion = 0.shortValue//当前版本号
@@ -50,7 +51,7 @@ object TopicMetadataRequest extends Logging {
 }
 
 case class TopicMetadataRequest(val versionId: Short,//当前请求的版本号,根据kafka源码来编译,一版不会改动
-                                val correlationId: Int,
+                                val correlationId: Int,//客户端请求唯一ID
                                 val clientId: String,
                                 val topics: Seq[String])//等待获取元数据的的topic集合
  extends RequestOrResponse(Some(RequestKeys.MetadataKey)){
@@ -63,8 +64,8 @@ case class TopicMetadataRequest(val versionId: Short,//当前请求的版本号,
     buffer.putShort(versionId)
     buffer.putInt(correlationId)
     writeShortString(buffer, clientId)
-    buffer.putInt(topics.size)
-    topics.foreach(topic => writeShortString(buffer, topic))
+    buffer.putInt(topics.size)//存储多少个topic
+    topics.foreach(topic => writeShortString(buffer, topic))//写入每一个topic名字
   }
 
   def sizeInBytes(): Int = {

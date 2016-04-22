@@ -54,9 +54,9 @@ class ReplicaManager(val config: KafkaConfig,
                      val logManager: LogManager,
                      val isShuttingDown: AtomicBoolean ) extends Logging with KafkaMetricsGroup {
   @volatile var controllerEpoch: Int = KafkaController.InitialControllerEpoch - 1 /* epoch of the controller that last changed the leader */
-  private val localBrokerId = config.brokerId
+  private val localBrokerId = config.brokerId//本地日志属于哪个节点的ID
   //key是topic-partition组成,value是组成的Partition对象,该对象管理这副本备份信息
-  private val allPartitions = new Pool[(String, Int), Partition]
+  private val allPartitions = new Pool[(String, Int), Partition]//就是一个Map,通过(String, Int)参数可以返回一个Partition对象
   private val replicaStateChangeLock = new Object
   
   //从leader节点抓取数据,并且将数据抓取成功后添加到对应的log文件中
@@ -254,20 +254,22 @@ class ReplicaManager(val config: KafkaConfig,
    * Read from all the offset details given and return a map of
    * (topic, partition) -> PartitionData
    * 输入参数中读取Map fetchRequest.requestInfo.map,内容是key表示抓取哪个topic-partition数据,value表示从offset开始抓取,抓取多少个数据返回
-   * 输出Map的key是抓取哪个topic-partition数据,value是
+   * 输出Map的key是抓取哪个topic-partition数据,value是该partition抓去到的数据信息
    */
   def readMessageSets(fetchRequest: FetchRequest) = {
-    val isFetchFromFollower = fetchRequest.isFromFollower
+    val isFetchFromFollower = fetchRequest.isFromFollower//true表示该请求来自于follower节点
     fetchRequest.requestInfo.map{
-      case (TopicAndPartition(topic, partition), PartitionFetchInfo(offset, fetchSize)) =>
+      case (TopicAndPartition(topic, partition), PartitionFetchInfo(offset, fetchSize)) =>//抓去哪个topic-partition上从什么offset开始抓去.抓去多少条数据
         val partitionDataAndOffsetInfo =
           try {
-            val (fetchInfo, highWatermark) = readMessageSet(topic, partition, offset, fetchSize, fetchRequest.replicaId)
+            //真正去读取本地文件,返回抓去的数据
+            val (fetchInfo, highWatermark) = readMessageSet(topic, partition, offset, fetchSize, fetchRequest.replicaId)//fetchRequest.replicaId哪个follower节点发过来的抓去请求
+            //写入统计信息
             BrokerTopicStats.getBrokerTopicStats(topic).bytesOutRate.mark(fetchInfo.messageSet.sizeInBytes)
             BrokerTopicStats.getBrokerAllTopicsStats.bytesOutRate.mark(fetchInfo.messageSet.sizeInBytes)
-            if (isFetchFromFollower) {
+            if (isFetchFromFollower) {//如果来自与follower节点
               debug("Partition [%s,%d] received fetch request from follower %d"
-                .format(topic, partition, fetchRequest.replicaId))
+                .format(topic, partition, fetchRequest.replicaId))//打印日志topic-partition收到了来自哪个follower节点的抓去请求,并且已经在本地文件获取到了文件内容
             }
             new PartitionDataAndOffset(new FetchResponsePartitionData(ErrorMapping.NoError, highWatermark, fetchInfo.messageSet), fetchInfo.fetchOffset)
           } catch {
@@ -295,7 +297,8 @@ class ReplicaManager(val config: KafkaConfig,
 
   /**
    * Read from a single topic/partition at the given offset upto maxSize bytes
-   * 从单独一个topic/partition文件的leader中读取数据,从给定offset开始读取,最多读取maxSize个
+   * 从单独一个topic/partition本地文件的leader中读取数据,从给定offset开始读取,最多读取maxSize个
+   * @fromReplicaId 表示该请求是哪个follower节点发过来的
    * 
    * 返回FetchDataInfo, Long
    */
@@ -305,7 +308,7 @@ class ReplicaManager(val config: KafkaConfig,
                              maxSize: Int,
                              fromReplicaId: Int): (FetchDataInfo, Long) = {
     // check if the current broker is the leader for the partitions
-    //获取该topic-partition对应的一个备份对象Replica
+    //获取该topic-partition对应的本地文件
     val localReplica = if(fromReplicaId == Request.DebuggingConsumerId)
       getReplicaOrException(topic, partition)
     else
@@ -316,7 +319,7 @@ class ReplicaManager(val config: KafkaConfig,
         None
       else
         Some(localReplica.highWatermark.messageOffset)
-    val fetchInfo = localReplica.log match {
+    val fetchInfo = localReplica.log match {//真正去读取文件记录,然后返回
       case Some(log) =>
         log.read(offset, maxSize, maxOffsetOpt)
       case None =>
@@ -597,6 +600,7 @@ class ReplicaManager(val config: KafkaConfig,
 
   //follow节点抓取partition的Replica数据后.更新文件偏移量信息LogOffsetMetadata
   //抓取的是topic-parition在replicaId节点上更新的数据量
+  //记录该follower节点replicaId,已经同步给他了每一个topic-partition到哪个offset了
   def updateReplicaLEOAndPartitionHW(topic: String, partitionId: Int, replicaId: Int, offset: LogOffsetMetadata) = {
     getPartition(topic, partitionId) match {
       case Some(partition) =>

@@ -67,9 +67,9 @@ object FetchRequest {
 case class FetchRequest(versionId: Short = FetchRequest.CurrentVersion,
                         correlationId: Int = FetchRequest.DefaultCorrelationId,
                         clientId: String = ConsumerConfig.DefaultClientId,
-                        replicaId: Int = Request.OrdinaryConsumerId,
-                        maxWait: Int = FetchRequest.DefaultMaxWait,
-                        minBytes: Int = FetchRequest.DefaultMinBytes,
+                        replicaId: Int = Request.OrdinaryConsumerId,//哪个follower节点发过来的抓去请求
+                        maxWait: Int = FetchRequest.DefaultMaxWait,//发送回复信息的最大等候时间,超过该时间,则立刻发送出去
+                        minBytes: Int = FetchRequest.DefaultMinBytes,//最小发送回复信息的数据量
                         requestInfo: Map[TopicAndPartition, PartitionFetchInfo])
         extends RequestOrResponse(Some(RequestKeys.FetchKey)) {
 
@@ -140,7 +140,7 @@ case class FetchRequest(versionId: Short = FetchRequest.CurrentVersion,
     })
   }
 
-  def isFromFollower = Request.isValidBrokerId(replicaId)
+  def isFromFollower = Request.isValidBrokerId(replicaId)//true表示该请求来自于follower节点
 
   def isFromOrdinaryConsumer = replicaId == Request.OrdinaryConsumerId
 

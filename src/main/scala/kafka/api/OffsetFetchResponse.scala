@@ -23,6 +23,9 @@ import kafka.api.ApiUtils._
 import kafka.common.{TopicAndPartition, OffsetMetadataAndError}
 import kafka.utils.Logging
 
+/**
+ * 抓去每一个topic-partition对应的offset最新信息
+ */
 object OffsetFetchResponse extends Logging {
   val CurrentVersion: Short = 0
 
@@ -44,6 +47,9 @@ object OffsetFetchResponse extends Logging {
   }
 }
 
+/**
+ * 抓去每一个topic-partition对应的offset最新信息
+ */
 case class OffsetFetchResponse(requestInfo: Map[TopicAndPartition, OffsetMetadataAndError],
                                correlationId: Int = 0)
     extends RequestOrResponse() {
