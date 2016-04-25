@@ -38,18 +38,18 @@ import java.util.concurrent.atomic.AtomicLong
  * 
  * 该对象表示一个partition的一个备份,因此他包含Partition对象
  */
-class Replica(val brokerId: Int,
+class Replica(val brokerId: Int,//该partition在哪个节点上的备份
               val partition: Partition,
               time: Time = SystemTime,
-              initialHighWatermarkValue: Long = 0L,
-              val log: Option[Log] = None) extends Logging {
+              initialHighWatermarkValue: Long = 0L,//该partition在本地的最高offset
+              val log: Option[Log] = None) extends Logging {//该partition对应的本地log文件
   // the high watermark offset value, in non-leader replicas only its message offsets are kept
   //一个高水印位置,在非leader备份中仅仅
   @volatile private[this] var highWatermarkMetadata: LogOffsetMetadata = new LogOffsetMetadata(initialHighWatermarkValue)
   // the log end offset value, kept in all replicas;
   //日志最后的偏移量位置,保存在所有的备份数据中
   // for local replica it is the log's end offset, for remote replicas its value is only updated by follower fetch
-  //对于本地的备份,该值表示日志的最后一个位置,对于远程的备份,该值表示抓取到了哪里
+  //对于本地的备份,该值表示日志的最后一个位置,对于远程的备份,该值表示抓取到了哪里,用于follower节点
   @volatile private[this] var logEndOffsetMetadata: LogOffsetMetadata = LogOffsetMetadata.UnknownOffsetMetadata
   // the time when log offset is updated,偏移量被更新的时间
   private[this] val logEndOffsetUpdateTimeMsValue = new AtomicLong(time.milliseconds)

@@ -46,7 +46,7 @@ class Partition(val topic: String,
   private val localBrokerId = replicaManager.config.brokerId
   private val logManager = replicaManager.logManager
   private val zkClient = replicaManager.zkClient
-  //key是partition备份所在节点ID,value是对应的备份对象Replica
+  //key是partition备份所在节点ID,value是对应的备份对象Replica,即备份partition的映射关系
   private val assignedReplicaMap = new Pool[Int, Replica]
   // The read lock is only required when multiple reads are executed and needs to be in a consistent manner
   private val leaderIsrUpdateLock = new ReentrantReadWriteLock()
@@ -78,6 +78,7 @@ class Partition(val topic: String,
   )
 
   /**
+   * 判断当前partition是否没有同步完
    * true表示该partition的所有配分文件没有全部同步完成
    * 1.寻找该partition的leader
    * 2.该leader中所有分配的备份对象全部同步完成
@@ -176,7 +177,7 @@ class Partition(val topic: String,
   }
 
   /**
-   * Make the local replica the leader by resetting LogEndOffset for remote replicas (there could be old LogEndOffset from the time when this broker was the leader last time)
+   *  Make the local replica the leader by resetting LogEndOffset for remote replicas (there could be old LogEndOffset from the time when this broker was the leader last time)
    *  and setting the new leader and ISR
    */
   def makeLeader(controllerId: Int,

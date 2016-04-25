@@ -278,7 +278,7 @@ abstract class RequestPurgatory[T <: DelayedRequest](brokerId: Int = 0, purgeInt
       while(running.get) {
         try {
           val curr = pollExpired() //获取一个元素
-          if (curr != null) {
+          if (curr != null) {//说明有过期的元素
             curr synchronized {
               expire(curr)
             }
@@ -318,7 +318,7 @@ abstract class RequestPurgatory[T <: DelayedRequest](brokerId: Int = 0, purgeInt
 
     /**
      * Get the next expired event
-     * 获取一个元素
+     * 获取一个已经过期的元素
      */
     private def pollExpired(): T = {
       while(true) {
