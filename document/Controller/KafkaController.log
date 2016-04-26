@@ -1,0 +1,117 @@
+KafkaController 只有一个broker节点存在的KafkaController类是主的控制器
+
+Controller的上下文对象,可以获取全局很多属性,该类与zookeeper关联
+  
+  var controllerChannelManager: ControllerChannelManager = null
+
+  //存储管理目前有哪些topic集合
+  var allTopics: Set[String] = Set.empty
+  
+  //key是topic-partition对象,value是该partition的备份的ID集合
+  var partitionReplicaAssignment: mutable.Map[TopicAndPartition, Seq[Int]] = mutable.Map.empty
+  
+  /**
+   * 1.循环所有的topic-partition
+   * 2.获取每一个/brokers/topics/${topic}/partitions/${partitionId}/state路径下的内容,生成LeaderIsrAndControllerEpoch对象
+   * key是topic-partition value是该partition对应的leader节点等信息对象
+   */
+  var partitionLeadershipInfo: mutable.Map[TopicAndPartition, LeaderIsrAndControllerEpoch] = mutable.Map.empty
+  var partitionsBeingReassigned: mutable.Map[TopicAndPartition, ReassignedPartitionsContext] = new mutable.HashMap
+
+  //判断是否topic-partition的第一个备份节点是leader节点,如果是则不处理什么,如果不是,则添加到partitionsUndergoingPreferredReplicaElection中
+  var partitionsUndergoingPreferredReplicaElection: mutable.Set[TopicAndPartition] = new mutable.HashSet
+
+  private var liveBrokersUnderlying: Set[Broker] = Set.empty//目前存活的Broker节点集合
+  private var liveBrokerIdsUnderlying: Set[Int] = Set.empty//目前存活的Broker节点ID集合
+  var shuttingDownBrokerIds: mutable.Set[Int] = mutable.Set.empty//已经进行shuttingDown的Broker节点ID集合
+
+  //controller_epoch节点的值是一个数字,kafka集群中第一个broker第一次启动时为1，以后只要集群中center controller中央控制器所在broker变更或挂掉，就会重新选举新的center controller，每次center controller变更controller_epoch值就会 + 1; 
+  var epoch: Int = KafkaController.InitialControllerEpoch - 1 //真正是从zookeeper中读取的该值
+  var epochZkVersion: Int = KafkaController.InitialControllerEpochZkVersion - 1 //真正是从zookeeper中读取的该值
+
+  val correlationId: AtomicInteger = new AtomicInteger(0)
+  
+
+  方法
+  1.可以获取当前所有正常live的broker集合
+  2.可以获取当前所有正常live和正在shutdown的broker集合
+  3.可以获取系统的所有topic集合
+  4.可以获取topic-partition与该partition在哪些节点上存在的映射Seq[Int]
+  5.可以获取topic-partition与该partition的LeaderIsrAndControllerEpoch映射信息
+  
+  6.通过4可以得到任意一个broker上有哪些topic-partition集合
+   def partitionsOnBroker(brokerId: Int): Set[TopicAndPartition] = {
+  7.通过4,可以得到在任意一个broker上有哪些topic-partition-备份节点ID集合
+  def replicasOnBrokers(brokerIds: Set[Int]): Set[PartitionAndReplica] = {
+  8.通过4,可以得到给定topic的所有topic-partition-备份节点ID集合
+  def replicasForTopic(topic: String): Set[PartitionAndReplica] = {
+  9.通过4,可以得到给定topic的所有topic-partition集合
+  def partitionsForTopic(topic: String): collection.Set[TopicAndPartition]
+
+  10.就是7,只是要获取的节点集合是所有live状态的节点集合
+  def allLiveReplicas(): Set[PartitionAndReplica]
+  11.内存中删除一个topic
+  def removeTopic(topic: String)
+  a.删除该topic名字
+  b.删除该topic对应的partition信息
+  c.删除该topic对应的partitionLeadershipInfo信息
+
+ KafkaController
+  val InitialControllerEpoch = 1
+  val InitialControllerEpochZkVersion = 1
+  def clientId = "id_%d-host_%s-port_%d".format(config.brokerId, config.hostName, config.port) //设置客户端ID
+  val controllerContext = new ControllerContext(zkClient, config.zkSessionTimeoutMs)//创建上下文对象
+
+  //每一个broker上的核心,因为参数onControllerFailover和onControllerResignation只有当该broker是主要的broker控制器的时候才会真正执行逻辑,否则该broker的控制器就是一个线程忙等待而已
+  private val controllerElector = new ZookeeperLeaderElector(controllerContext, ZkUtils.ControllerPath, onControllerFailover,onControllerResignation, config.brokerId)
+ 1.静态方法def parseControllerId(controllerInfoString: String): Int
+   从字符串中解析brokerId,即哪个broker是主KafkaController
+ 2.onControllerFailover 当该broker是主要的控制器的时候才会调用该方法
+   * 当前broker变成controller状态的时候,会执行以下逻辑
+   * 1. Register controller epoch changed listener 注册各种监听
+   * 2. Increments the controller epoch 增加第几次更换controller次数
+   * 3. Initializes the controller's context object that holds cache objects for current topics, live brokers and
+   *    leaders for all existing partitions.
+   * 4. Starts the controller's channel manager 开启该程序执行
+   * 5. Starts the replica state machine 开启该程序执行
+   * 6. Starts the partition state machine 开启该程序执行
+  a.初始化/controller_epoch节点,获取该节点存储的已经第几次更改controller
+  b.设置/controller_epoch节点,使该节点存储的已经第几次更改controller累加1
+  c.注册各种zookeeper的监听
+  d.初始化ControllerContext的信息
+    读取集群所有的brokerId集合
+    读取所有的topic集合
+    读取每一个topic-partition在哪些broker集合上存在的映射关系
+  e.获取每一个topic-partition对应的leader等LeaderAndIsrCache信息
+  f.创建一个ControllerChannelManager对象
+  g.判断是否topic-partition的第一个备份节点是leader节点,如果是则不处理什么,如果不是,则添加到partitionsUndergoingPreferredReplicaElection中
+  h.重新分配每一个topic-partition对应的备份节点
+  i.initializeTopicDeletion
+
+
+
+  def onControllerFailover() {
+      
+      //开启任务
+      replicaStateMachine.startup()
+      partitionStateMachine.startup()
+      // register the partition change listeners for all existing topics on failover
+      controllerContext.allTopics.foreach(topic => partitionStateMachine.registerPartitionChangeListener(topic))
+      info("Broker %d is ready to serve as the new controller with epoch %d".format(config.brokerId, epoch))//打印说明该节点已经是controller了
+      brokerState.newState(RunningAsController)//设置该服务器运行中,并且该服务器也已经是controller服务器了
+
+      maybeTriggerPartitionReassignment()
+      maybeTriggerPreferredReplicaElection()
+      /* send partition leadership info to all live brokers */
+      sendUpdateMetadataRequest(controllerContext.liveOrShuttingDownBrokerIds.toSeq)
+      if (config.autoLeaderRebalanceEnable) {
+        info("starting the partition rebalance scheduler")
+        autoRebalanceScheduler.startup()
+        autoRebalanceScheduler.schedule("partition-rebalance-thread", checkAndTriggerPartitionRebalance,
+          5, config.leaderImbalanceCheckIntervalSeconds, TimeUnit.SECONDS)
+      }
+      deleteTopicManager.start()
+    }
+    
+
+   3.onControllerResignation当leader broker失效的时候调用该方法
