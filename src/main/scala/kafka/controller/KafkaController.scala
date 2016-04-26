@@ -54,9 +54,10 @@ class ControllerContext(val zkClient: ZkClient,
   
   val brokerShutdownLock: Object = new Object
   
+  //controller_epoch节点的值是一个数字,kafka集群中第一个broker第一次启动时为1，以后只要集群中center controller中央控制器所在broker变更或挂掉，就会重新选举新的center controller，每次center controller变更controller_epoch值就会 + 1; 
+  var epoch: Int = KafkaController.InitialControllerEpoch - 1 //真正是从zookeeper中读取的该值
+  var epochZkVersion: Int = KafkaController.InitialControllerEpochZkVersion - 1 //真正是从zookeeper中读取的该值
   
-  var epoch: Int = KafkaController.InitialControllerEpoch - 1
-  var epochZkVersion: Int = KafkaController.InitialControllerEpochZkVersion - 1
   val correlationId: AtomicInteger = new AtomicInteger(0)
   
   //存储管理目前有哪些topic集合
@@ -72,6 +73,8 @@ class ControllerContext(val zkClient: ZkClient,
    */
   var partitionLeadershipInfo: mutable.Map[TopicAndPartition, LeaderIsrAndControllerEpoch] = mutable.Map.empty
   var partitionsBeingReassigned: mutable.Map[TopicAndPartition, ReassignedPartitionsContext] = new mutable.HashMap
+  
+  //判断是否topic-partition的第一个备份节点是leader节点,如果是则不处理什么,如果不是,则添加到partitionsUndergoingPreferredReplicaElection中
   var partitionsUndergoingPreferredReplicaElection: mutable.Set[TopicAndPartition] = new mutable.HashSet
 
   private var liveBrokersUnderlying: Set[Broker] = Set.empty//目前存活的Broker节点集合
@@ -354,6 +357,7 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
    */
   def onControllerFailover() {
     if(isRunning) {
+      //打印日志,说明该broker 已经开始切换成主要的controller了
       info("Broker %d starting become controller state transition".format(config.brokerId))
       //read controller epoch from zk 初始化/controller_epoch节点,获取该节点存储的已经第几次更改controller
       readControllerEpochFromZookeeper()
@@ -365,7 +369,7 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
       partitionStateMachine.registerListeners()//添加/brokers/topics节点监听
       replicaStateMachine.registerListeners()//注册监听/brokers/ids
       
-      //初始化
+      //初始化ControllerContext的信息
       initializeControllerContext()
       
       //开启任务
@@ -811,13 +815,16 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
   }
 
   //读取/admin/preferred_replica_election节点信息存储的topic-partition集合
+  //判断是否topic-partition的第一个备份节点是leader节点,如果是则不处理什么,如果不是,则添加到partitionsUndergoingPreferredReplicaElection中
   private def initializePreferredReplicaElection() {
     // initialize preferred replica election state 读取/admin/preferred_replica_election节点信息存储的topic-partition集合,即Set[TopicAndPartition]
     val partitionsUndergoingPreferredReplicaElection = ZkUtils.getPartitionsUndergoingPreferredReplicaElection(zkClient)
     // check if they are already completed or topic was deleted
+    ////检查每一个设置的topic-partition是否已经完成了第一个备份就是leader,或者该topic已经被删除了,没有partition了
     val partitionsThatCompletedPreferredReplicaElection = partitionsUndergoingPreferredReplicaElection.filter { partition =>
       val replicasOpt = controllerContext.partitionReplicaAssignment.get(partition)
       val topicDeleted = replicasOpt.isEmpty
+      //如果该partition的备份数量>0,则successful判断第一个备份节点是否是该partition的leader
       val successful =
         if(!topicDeleted) controllerContext.partitionLeadershipInfo(partition).leaderAndIsr.leader == replicasOpt.get.head else false
       successful || topicDeleted
@@ -829,6 +836,7 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
     info("Resuming preferred replica election for partitions: %s".format(controllerContext.partitionsUndergoingPreferredReplicaElection.mkString(",")))
   }
 
+  //重新分配每一个topic-partition对应的备份节点
   private def initializePartitionReassignment() {
     // read the partitions being reassigned from zookeeper path /admin/reassign_partitions
     /**
@@ -838,9 +846,11 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
      */
     val partitionsBeingReassigned = ZkUtils.getPartitionsBeingReassigned(zkClient)
     // check if they are already completed or topic was deleted
+    //循环每一个topic-partition,获取目前该topic-parttion对应已经分配的备份节点集合
     val reassignedPartitions = partitionsBeingReassigned.filter { partition =>
-      val replicasOpt = controllerContext.partitionReplicaAssignment.get(partition._1)
+      val replicasOpt = controllerContext.partitionReplicaAssignment.get(partition._1)//获取目前该topic-parttion对应已经分配的备份节点集合
       val topicDeleted = replicasOpt.isEmpty
+      //true表示当前存在的备份集合与设置新的备份集合相同
       val successful = if(!topicDeleted) replicasOpt.get == partition._2.newReplicas else false
       topicDeleted || successful
     }.map(_._1)
