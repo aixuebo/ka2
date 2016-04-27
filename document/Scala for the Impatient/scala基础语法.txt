@@ -1,0 +1,104 @@
+一、返回值格式
+变量名:类型 = 值
+scala> 8 * 5 + 2
+res0: Int = 42
+
+可以使用变量名用于运算
+scala> 0.5 * res0
+res1: Double = 21.0
+scala> "Hello, " + res0
+res2: java.lang.String = Hello, 42
+
+二、val 和 var
+val相当于value,值是不允许改的。
+var相当于变量,是可以改的。
+
+1.val是不能更改的
+scala> val s = 9 + 2
+s: Int = 11
+
+scala> s = 10
+<console>:8: error: reassignment to val
+因此报错了
+
+2.scala中鼓励使用val,除非你真的需要更改值,否则都鼓励用val
+3.注意 不需要指定变量类型,他可以推论出来,从表达式的返回类型推论.但是这就必须要初始化该变量,否则就会抛异常,因为没办法推论到对应的类型。
+但是也可以指定:
+val greeting: String = null
+val greeting: Any = "Hello"
+
+4.scala是不要求每一行有分号结束的,只有在一行中有多个语句块的时候,才必须加分号。
+
+5.可以一次为多个属性分配同一个属性值
+val xmax, ymax = 100 // Sets xmax and ymax to 100
+var greeting, message: String = null
+
+6.scala中的数据类型,其中基础数据类型Byte, Char, Short, Int, Long, Float,  Double, Boolean对应的都是class,这点与java不一样.
+在scala中基础类型和class是没有区别的,因此可以执行1.toString()方法
+
+甚至基础类型class都会有特别的方法,比如
+1.to(10) // Yields Range(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+
+7.scaka的String依赖java的String,隐式转换
+然而StringOps类中有很多个操作符号
+例如
+intersect方法返回两个字符串公共部分，"Hello".intersect("World") // Yields "lo"
+String类型的Hello implicitly converted 隐式转换到StringOps对象。
+intersect方法在StringOps对象中定义的。
+
+8.类似RichInt, RichDouble, RichChar等等类,每一个类都是小数据集提供便利的方法,对应的是int Double Char
+例如1.to(10) 是int转换成RichInt,而RichInt中有to方法
+
+10.BigInt和BigDecimal类型是任意的数字类型
+
+11.在scala中,你使用的方法,不用强转,使用to方法就可以转换
+99.44.toInt is 99, and 99.toChar is 'c'. "99.44".toDouble is 99.44
+即String可以隐式转换到整数、小数
+整数 小数 可以任意转换成小数 整数。。
+
+12.算法和操作符在scala中可以被覆盖
+a + b 的调用逻辑a.+(b) 即a调用+方法,参数是b
+因此scala中定义方法名称可以是任意字符
+例如 BigInt 定义一个方法 /%
+
+13.注意scala没有++和--操作符,代替的是+=1 和 -=1
+
+14.你经常使用数据操作符*号,在BigInt和BigDecimal对象中
+val x: BigInt = 1234567890
+x * x * x // Yields 1881676371789154860897069000‘
+但是java中必须要这么写x.multiply(x).multiply(x).因此scala会容易读
+
+三.Calling Functions and Methods
+java中使用数据函数min等,需要在Math的静态方法中,因此调用是Math.min(2)
+而scala将函数添加到方法,直接用min就可以.
+例如
+import scala.math._
+sqrt(2) // Yields 1.4142135623730951
+pow(2, 4) // Yields 16.0
+min(3, Pi) // Yields 3.0
+
+注意:
+1.因为这些function被定义在import scala.math中,因此要导入一下。
+2.在scala中_就是java的*,表示通配符
+3.以scala开头的包名,scala是可以被忽略掉的,因此import math._ 等同于 import scala.math._ 等于scala.math.sqrt(2)
+
+
+scala没有静态方法,但是他有object单利类,可以解决这个问题,因此很多class都有一个伴随object(companion object)对象,用于该class的静态内容
+例如BigInt.probablePrime(100, scala.util.Random) probablePrime就是BigInt的class中的object对象的方法
+
+scala中的方法,当没有参数的时候,也经常不使用()
+例如StringOps的class中一个方法distinct
+我们可以调用"Hello".distinct或者"Hello".distinct()
+
+四、The apply Method 相当于伴随对象的构造函数
+String变量s,s(i)表示获取该字符串的第i个字符是什么
+eg:"Hello"(4) // Yields 'o'
+
+这样的实现,不是因为String类隐式转换实现了()操作符
+而是因为实现了apply方法。
+eg:在StringOps类中,有一个方法def apply(n: Int): Char
+因此"Hello"(4) 调用的是"Hello".apply(4)
+
+因此当我们看BigInt的伴随object的时候,经常看到可以将String或者number转换成BigInt object,
+eg BigInt("1234567890") 原因就是BigInt.apply("1234567890")
+
