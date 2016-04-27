@@ -1,0 +1,300 @@
+一、group by
+data: collection.mutable.Map[TopicAndPartition, ByteBufferMessageSet]
+  /**
+   * Partitions the data into a map of maps (one for each topic).
+   * 将Map[TopicAndPartition, ByteBufferMessageSet] 按照topic分组,生成Map[topic,Map[TopicAndPartition, ByteBufferMessageSet]]
+   */
+  private lazy val dataGroupedByTopic = data.groupBy(_._1.topic)
+
+二、filter
+  /* offsets and metadata cache
+   * 做一个缓存,key表示group-topic-partition,value表示该partition对应的偏移量以及描述信息 
+   **/
+  private val offsetsCache = new Pool[GroupTopicPartition, OffsetAndMetadata]
+val staleOffsets = offsetsCache.filter(startMs - _._2.timestamp > config.offsetsRetentionMs)
+
+返回值还是GroupTopicPartition, OffsetAndMetadata的迭代器,过滤保留时间返回true的数据
+
+三、map函数
+map函数就是将集合的每一个元素,作为参数,进行一定运算,最终返回的还是集合,即运算后的集合
+
+例1
+scala> list1
+res3: List[Int] = List(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+
+scala> list1.map(x=>x*x)
+res4: List[Int] = List(0, 1, 4, 9, 16, 25, 36, 49, 64, 81, 100)
+
+例2
+scala> val evenify = (x:Int) => if (x % 2 == 0) Some(x) else None
+evenify: Int => Option[Int] = <function1>
+
+scala> list1.map(evenify)
+res6: List[Option[Int]] = List(Some(0), None, Some(2), None, Some(4), None, Some(6), None, Some(8), None, Some(10))
+
+四、flatMap函数
+主要用于集合的元素依然是集合的情况,比如List(List,List),返回值是List(int,int)这样的结果,即返回的List集合里面的元素是正数或者String,总之不再是一个集合了,
+因此给扁平化处理了,并去除空元素（如None）
+
+例1
+
+scala> val list2 = 1 to 10 toList
+list2: List[Int] = List(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+
+
+scala> val list3 = 10 to 20 toList
+list3: List[Int] = List(10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+
+scala> val list4 = List(list2, list3)
+list4: List[List[Int]] = List(List(1, 2, 3, 4, 5, 6, 7, 8, 9, 10), List(10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20))
+
+scala> list4.flatMap(x=>x.map(y=>y*2))
+res2: List[Int] = List(2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40) 
+
+
+1.我们可以看到list2和list3是两个正数序列集合
+2.list4是一个list序列集合,但是里面的元素依然是list
+3.list4.flatMap(x=>x.map(y=>y*2))解释
+a.flatMap表示要循环list4里面的每一个元素
+b.其中参数x就是list4里面的每一个元素,即list2和list3中的一个集合
+c.循环每一个list2,然后每一个list2的元素进行map方法,产生新的结果
+d.将新的结果组成新的List集合 返回即可。
+
+例2
+
+scala> List(1,2,3,4,5)
+res0: List[Int] = List(1, 2, 3, 4, 5)
+
+scala> res0.flatMap(x => 1 to x )
+res1: List[Int] = List(1, 1, 2, 1, 2, 3, 1, 2, 3, 4, 1, 2, 3, 4, 5)
+
+函数x分别是list内的正数,每一个都要进行1 to x,产生的结果生成最终的集合
+
+例3
+将None的数据去除掉,因为None的数据看着烦
+
+scala> val list1 = 1 to 10 toList
+list1: List[Int] = List(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+
+scala> list1.map(evenify)
+res3: List[Option[Int]] = List(None, Some(2), None, Some(4), None, Some(6), None, Some(8), None, Some(10))
+
+scala> val list2 = list1.map(evenify)
+list2: List[Option[Int]] = List(None, Some(2), None, Some(4), None, Some(6), None, Some(8), None, Some(10))
+
+scala> list2.flatMap(x => x)
+res6: List[Int] = List(2, 4, 6, 8, 10)  
+简单吧。我们也可以将这个写在一行：
+
+scala> list1.flatMap(x=>evenify(x))
+res14: List[Int] = List(2, 4, 6, 8, 10)
+
+五、zip函数
+将两个list 按照相同的位置,组装成一个新的List集合,每一个元素是两个集合的元组组成,最终list数量取决于size最少的list
+
+例1
+scala> val list = "Hello.World".toCharArray
+list: Array[Char] = Array(H, e, l, l, o, ., W, o, r, l, d)
+
+scala> val list1 = 1 to 20 toList
+list1: List[Int] = List(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+
+scala> list.zip(list1)
+res30: Array[(Char, Int)] = Array((H,1), (e,2), (l,3), (l,4), (o,5), (.,6), (W,7), (o,8), (r,9), (l,10), (d,11))
+
+scala> list1.zip(list)
+res31: List[(Int, Char)] = List((1,H), (2,e), (3,l), (4,l), (5,o), (6,.), (7,W), (8,o), (9,r), (10,l), (11,d))
+返回的列表长度取决于较短的列表，只要有一个列表到达了末尾zip函数就停止了
+
+例2
+我们可以使用zipAll函数来对较长列表的剩余元素进行处理：
+
+scala> list.zipAll(list1,'a','1')
+res33: Array[(Char, AnyVal)] = Array((H,1), (e,2), (l,3), (l,4), (o,5), (.,6), (W,7), (o,8), (r,9), (l,10), (d,11), (a,12), (a,13), (a,14), (a,15), (a,16), (a,17), (a,18), (a,19), (a,20))
+(译者注：最后一个参数为1，让返回类型是Array[(Char,Int)]对于这个例子更好点)  
+如果字母的列表比较短，那么用'a'来补充，反之用1来补充
+
+六、zipWithIndex函数
+元素的下标（从0开始）会被增加进去：
+
+list.zipWithIndex
+res36: Array[(Char, Int)] = Array((H,0), (e,1), (l,2), (l,3), (o,4), (.,5), (W,6), (o,7), (r,8), (l,9), (d,10))
+
+七、reduce函数
+使用reduce我们可以处理列表的每个元素并返回一个值。通过使用reduceLeft和reduceRight我们可以强制处理元素的方向。（使用reduce方向是不被保证的）
+译者注：reduce和fold很像，但reduce返回的值的类型必须和列表的元素类型相关（类型本身或其父类），
+但fold没有这种限制（但与此同时fold必须给定一个初始值），可以说reduce是fold的一种特殊情况。
+
+scala> list1
+res51: List[Int] = List(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+
+scala> val sum = (x:Int, y:Int) => {println(x,y) ; x + y}
+sum: (Int, Int) => Int = <function2>
+即两个int正数参数,返回int,函数打印两个参数,并且返回两个参数之和
+
+例1
+scala> list1.reduce(sum)
+(1,2)
+(3,3)
+(6,4)
+(10,5)
+(15,6)
+(21,7)
+(28,8)
+(36,9)
+(45,10)
+(55,11)
+(66,12)
+(78,13)
+(91,14)
+(105,15)
+(120,16)
+(136,17)
+(153,18)
+(171,19)
+(190,20)
+res52: Int = 210
+我们可以看到从左到右,拿出两个元素取和,然后和与接下来的一个元素进行sum运算,最终获取结果
+
+例2
+scala> list1.reduceLeft(sum)
+(1,2)
+(3,3)
+(6,4)
+(10,5)
+(15,6)
+(21,7)
+(28,8)
+(36,9)
+(45,10)
+(55,11)
+(66,12)
+(78,13)
+(91,14)
+(105,15)
+(120,16)
+(136,17)
+(153,18)
+(171,19)
+(190,20)
+res53: Int = 210
+我们可以看到该结果与例1相同,都是从左到右执行程序
+
+例3
+scala> list1.reduceRight(sum)
+(19,20)
+(18,39)
+(17,57)
+(16,74)
+(15,90)
+(14,105)
+(13,119)
+(12,132)
+(11,144)
+(10,155)
+(9,165)
+(8,174)
+(7,182)
+(6,189)
+(5,195)
+(4,200)
+(3,204)
+(2,207)
+(1,209)
+res54: Int = 210
+我们可以看到从右到左,拿出两个元素取和,然后接下来的一个元素与和进行sum运算,最终获取结果
+
+八、for循环 与yield一起使用
+Scala 中 for 循环是有返回值的。如果被循环的是 Map，返回的就是  Map，被循环的是 List，返回的就是 List，以此类推。
+for 循环中的 yield 会把当前的元素记下来，保存在集合中，循环结束后将返回该集合。
+
+例1
+scala> for (i <- 1 to 5) yield i
+res10: scala.collection.immutable.IndexedSeq[Int] = Vector(1, 2, 3, 4, 5)
+我们可以看到循环后,产生新的Vector类,元素内容就是for循环的内容
+
+例2
+scala> for (i <- 1 to 5) yield i * 2
+res11: scala.collection.immutable.IndexedSeq[Int] = Vector(2, 4, 6, 8, 10)
+我们可以看到循环后,产生新的Vector类,元素内容就是for循环的内容进行了一些运算
+
+
+例3
+scala> for (i <- 1 to 5) yield i % 2
+res12: scala.collection.immutable.IndexedSeq[Int] = Vector(1, 0, 1, 0, 1)
+我们可以看到循环后,产生新的Vector类,元素内容就是for循环的内容进行了一些球模运算
+
+例4
+Scala 数组上的 for 循环 yield 的例子
+
+之前提到过 for 循环 yield 会构造并返回与给定集合相同类型的集合. 为此, 我们来看看以下用 Scala 数组上的例子. 
+
+
+scala> val a = Array(1, 2, 3, 4, 5)
+a: Array[Int] = Array(1, 2, 3, 4, 5)
+ 
+scala> for (e <- a) yield e
+res5: Array[Int] = Array(1, 2, 3, 4, 5)
+ 
+scala> for (e <- a) yield e * 2
+res6: Array[Int] = Array(2, 4, 6, 8, 10)
+ 
+scala> for (e <- a) yield e % 2
+res7: Array[Int] = Array(1, 0, 1, 0, 1)
+
+我们可以看到,因为循环的是Array,因此结果是Array类型的
+
+例5
+for 循环, yield, 和守卫( guards) (for loop 'if' conditions)
+
+假如你熟悉了 Scala 复杂的语法, 你就会知道可以在 for 循环结构中加上 'if' 表达式. 它们作为测试用，
+通常被认为是一个守卫，你可以把它们与 yield 语法联合起来用。
+
+scala> val a = Array(1, 2, 3, 4, 5)
+a: Array[Int] = Array(1, 2, 3, 4, 5)
+ 
+scala> for (e <- a if e > 2) yield e
+res1: Array[Int] = Array(3, 4, 5)
+
+我们可以看到结果是满足条件的集合
+
+例6
+如果你熟悉 Scala 的 loop 结构, 就会知道在 for 后的圆括号中还可以许更多的事情. 你可以加入 "if" 表达式，或别的语句, 比如下面的例子，可以组合多个 if 语句:
+def scalaFiles =
+  for {
+    file <- filesHere
+    if file.isFile
+    if file.getName.endsWith(".scala")
+  } yield file
+
+总结:
+yield 关键字的简短总结:
+针对每一次 for 循环的迭代, yield 会产生一个值，被循环记录下来 (内部实现上，像是一个缓冲区).
+当循环结束后, 会返回所有 yield 的值组成的集合.
+返回集合的类型与被遍历的集合类型是一致的.
+
+九、Seq的partition方法
+val (a,b) = List(1,2,3,4,5).partition(_%2==0) 
+a: List[Int] = List(2, 4)
+b: List[Int] = List(1, 3, 5)
+即将list集合按照一个函数进行拆分,生成两个集合,分别赋值给a和b
+
+十、Seq的span方法
+val (a,b) = List(1,9,2,4,5).span(_<3) 
+a: List[Int] = List(1)
+b: List[Int] = List(9, 2, 4, 5)
+即将list集合按照一个函数进行拆分,生成两个集合,分别赋值给a和b
+
+该方法与partition方法不同的是:碰到不符合就结束
+
+十一、Seq的splitAt方法
+val (a,b) = List(1,3,5,7,9) splitAt 2 
+a: List[Int] = List(1, 3)
+b: List[Int] = List(5, 7, 9)
+即将list集合按照一个位置进行拆分,生成两个集合,分别赋值给a和b
+
+十二、Seq的groupBy方法
+List(1,3,5,7,9) groupBy (5<_) // Map((true,List(7, 9)), (false,List(1, 3, 5)))
+res1: scala.collection.immutable.Map[Boolean,List[Int]] = Map(false -> List(1, 3, 5), true -> List(7, 9))
+
+十三、
