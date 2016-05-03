@@ -19,3 +19,45 @@ padTo(len:int,ejem:B):That
 剩下的都是约束,
 比如第一部分,约束B是A的父类,以及That的类型
 第二部分声明了一个隐式转换类,该类接收三个参数ArrayBuffer[A] B That
+9.函数调用
+import scala.math._
+val num = 3.14
+val fun = ceil _  //设置fun变量为一个ceil函数,_表示该函数需要一个参数
+fun的类型是(Double) => Double,表示这个函数是接受一个Double类型的参数,返回一个Double类型的值
+10.在一个线程中运行函数block,该函数是没有参数,并且无返回值的函数
+def runInThread(block: () => Unit) {
+	new Thread {
+		override def run() { block() }
+	}.start()
+}
+11.val a = Array("Hello", "World")
+val b = Array("hello", "world")
+a.corresponds(b)(_.equalsIgnoreCase(_))
+函数定义
+def corresponds[B](that: Seq[B])(p: (A, B) => Boolean): Boolean
+这个序列化的参数和断言函数参数是curried参数分割的.
+
+这个类型的推论,可以推算出B,
+在我们的例子中,that是String的字符串数组,因此p校验函数希望(String, String) => Boolean
+_.equalsIgnoreCase(_) 表示 (a: String, b: String) => a.equalsIgnoreCase(b).
+
+12.在一个线程中运行函数block,该函数是没有参数,并且无返回值的函数
+def runInThread(block: () => Unit) {
+	new Thread {
+		override def run() { block() }
+	}.start()
+}
+调用:
+runInThread { 
+	() => println("Hi"); Thread.sleep(10000);  println("Bye") 
+}
+应该避免使用(),使用符号:,修改
+def runInThread(block: => Unit) {
+	new Thread {
+		override def run() { block }
+	}.start()
+}
+调用
+runInThread { println("Hi"); Thread.sleep(10000); println("Bye") }
+
+13.

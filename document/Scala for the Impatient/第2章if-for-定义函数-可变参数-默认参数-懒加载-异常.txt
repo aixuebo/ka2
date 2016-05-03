@@ -114,8 +114,12 @@ for (i <- 0 to 1; c <- "Hello") yield (c + i).toChar // Yields Vector('H', 'e'
 
 6.如果多个表达式不想用分号区分的话，可以让他们每一个在一行输出
 for { i <- 1 to 3 
-from = 4 - i j <- from to 3 
+from = 4 - i
+j <- from to 3 
 } 
+
+7.(1 to 9).map("*" * _).foreach(println _)
+foreach循环每一个元素
 
 七、functions函数
 1.定义一个函数，包括name、参数、函数体

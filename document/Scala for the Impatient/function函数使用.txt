@@ -1,0 +1,36 @@
+1.高阶函数在实践中一些地方是非常有用的,变成很舒服的好方式
+比如map函数,一个集合内所有的元素,都会被应用与参数function,然后返回一个结果
+(1 to 9).map(0.1 * _)
+2.如何打印三角形
+*
+**
+***
+****
+*****
+******
+*******
+********
+*********
+答案:
+(1 to 9).map("*" * _).foreach(println _)
+其中
+(1 to 9).map("*" * _) 返回res2: scala.collection.immutable.IndexedSeq[String] = Vector(*, **, ***, ****, *****, ******, *******, ********, *********)
+然后对该集合进行for循环,每一个元素进行println输出
+
+3.(1 to 9).filter(_ % 2 == 0) // Vector(2, 4, 6, 8)
+4.(1 to 9).reduceLeft(_ * _) 等同于 1 * 2 * 3 * 4 * 5 * 6 * 7 * 8 * 9
+(...((1 * 2) * 3) * ... * 9)
+5.排序函数
+"Mary had a little lamb".split(" ").sortWith(_.length < _.length)
+返回值 Array("a", "had", "Mary", "lamb", "little")
+6.
+val a = Array("Hello", "World")
+val b = Array("hello", "world")
+a.corresponds(b)(_.equalsIgnoreCase(_))
+函数定义
+def corresponds[B](that: Seq[B])(p: (A, B) => Boolean): Boolean
+这个序列化的参数和断言函数参数是curried参数分割的.
+
+这个类型的推论,可以推算出B,
+在我们的例子中,that是String的字符串数组,因此p校验函数希望(String, String) => Boolean
+_.equalsIgnoreCase(_) 表示 (a: String, b: String) => a.equalsIgnoreCase(b).

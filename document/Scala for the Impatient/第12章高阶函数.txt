@@ -1,0 +1,196 @@
+• A function argument specifies behavior that should be executed later.
+• Many collection methods take function parameters, applying a function to the values of the collection.
+• There are syntax shortcuts that allow you to express function parameters in a way that is short and easy to read.
+• You can create functions that operate on blocks of code and look much like the built-in control statements.
+
+
+摘要
+1.function 函数在scala中是一等公民,就像数字一样
+  函数式变成中,函数是一等公民,可以被传递参数和操作,就像其他数据类型一样。
+2.可以创建匿名的function函数,通常匿名函数会被放到其他函数中当作参数
+3.
+
+一、函数和函数值
+1.函数是一等公民,一个函数可以被存储在一个变量中
+import scala.math._
+val num = 3.14
+val fun = ceil _  //设置fun变量为一个ceil函数,_表示该函数需要一个参数
+2.在PEPL中的变量类型
+在PEPL中,这个num变量对应的是Double类型,
+fun的类型是(Double) => Double,表示这个函数是接受一个Double类型的参数,返回一个Double类型的值
+你可以将fun这个函数用于两个地方
+a.调用该函数 例如fun(num) // 4.0
+b.传递这个函数的变量到另外一个函数里面,作为参数传递。
+  例如:Array(3.14, 1.42, 2.0).map(fun) // Array(4.0, 2.0, 2.0)
+二、匿名函数
+1.(x: Double) => 3 * x,输出 res0: Double => Double = <function1>
+  表示每一个double都扩大3倍
+2.不用默认的res0,让其有一个变量名
+  val triple = (x: Double) => 3 * x
+3.不用函数,使用方法定义这个
+  def triple(x: Double) = 3 * x
+4.Array(3.14, 1.42, 2.0).map((x: Double) => 3 * x) // Array(9.42, 4.26, 6.0)
+  表示每一个Map都可以执行一个函数
+5.你可以对函数的内容用{}代替()
+例如 Array(3.14, 1.42, 2.0).map{ (x: Double) => 3 * x }
+也可以去除.调用方式
+Array(3.14, 1.42, 2.0) map { (x: Double) => 3 * x }
+三、一个函数,参数也是函数
+1.如何让一个函数作为另外一个函数的参数
+def valueAtOneQuarter(f: (Double) => Double) = f(0.25)
+2.注意这个参数是任意的一个函数都可以,只要这个函数是参数double,返回值是double就可以
+valueAtOneQuarter(ceil _) // 1.0 表示ceil(0.25)
+valueAtOneQuarter(sqrt _) // 0.5 (because 0.5 × 0.5 = 0.25) 表示0.25开根号
+3.高阶函数
+def mulBy(factor : Double) = (x : Double) => factor * x
+例如mulBy(3) 返回一个function 函数 (x : Double) => 3 * x
+val quintuple = mulBy(5)
+quintuple(20) // 100
+总结:
+double是参数,返回值是一个函数((Double) => Double)
+因此返回类型是(Double) => ((Double) => Double)
+四、参数类型推理
+1.函数推理,导致可以简写
+a.valueAtOneQuarter((x: Double) => 3 * x) // 0.75
+b.我们知道valueAtOneQuarter方法传递的是函数(Double) => Double,因此你已经知道了参数类型是Double,你可以简写
+valueAtOneQuarter((x) => 3 * x)
+c.当函数的参数是一个的时候,你可以省略()去包裹这个参数,只有两个以上参数的时候才需要用()包裹住,让编译器知道哪些是参数。
+因此简写成valueAtOneQuarter(x => 3 * x)
+d.如果一个参数,只是被用了一次,那么可以使用_代替该参数
+因此可以简写成valueAtOneQuarter(3 * _)
+2.判断函数定义的是否合法
+val fun = 3 * _ // Error: Can't infer types 有问题,因为不知道_代表的参数类型是什么,从而没办法知道函数返回值是什么类型
+val fun = 3 * (_: Double) // OK 没有问题,因为定义了参数的类型是Double
+val fun: (Double) => Double = 3 * _ // ok,因为参数是Double,_就使用了一次,因此引用的就是double类型的参数
+五、使用高阶函数
+1.高阶函数在实践中一些地方是非常有用的,变成很舒服的好方式
+比如map函数,一个集合内所有的元素,都会被应用与参数function,然后返回一个结果
+(1 to 9).map(0.1 * _)
+2.如何打印三角形
+*
+**
+***
+****
+*****
+******
+*******
+********
+*********
+答案:
+(1 to 9).map("*" * _).foreach(println _)
+其中
+(1 to 9).map("*" * _) 返回res2: scala.collection.immutable.IndexedSeq[String] = Vector(*, **, ***, ****, *****, ******, *******, ********, *********)
+然后对该集合进行for循环,每一个元素进行println输出
+
+3.(1 to 9).filter(_ % 2 == 0) // Vector(2, 4, 6, 8)
+4.(1 to 9).reduceLeft(_ * _) 等同于 1 * 2 * 3 * 4 * 5 * 6 * 7 * 8 * 9
+(...((1 * 2) * 3) * ... * 9)
+5.排序函数
+"Mary had a little lamb".split(" ").sortWith(_.length < _.length)
+返回值 Array("a", "had", "Mary", "lamb", "little")
+六、函数的作用于,闭合区间
+1.在scala中,你可以在任何作用于下定义一个函数function
+例如,在package下、在class下,甚至在function内部定义function,在method方法内部定义function
+2.在function的body体内,你可以访问在闭合作用域下面的任意变量
+例子
+def mulBy(factor : Double) = (x : Double) => factor * x
+val triple = mulBy(3)
+val half = mulBy(0.5)
+println(triple(14) + " " + half(14)) // Prints 42 7
+triple 和 half变成两个函数,可以在后面进行调用使用
+
+七、SAM Conversions
+1.java中single abstract method 称之为 SAM
+2.因为java不支持函数作为参数被传递到一个方法中,因此要想实现这样的方式,必须使用SAM的方式,
+例如记录按钮点击次数
+var counter = 0
+val button = new JButton("Increment")
+button.addActionListener(new ActionListener {
+	override def actionPerformed(event: ActionEvent) {
+		counter += 1
+	}
+})
+有一个方法actionPerformed,是抽象的方法,定义在一个接口中。
+3.如果我们可以传递一个函数到addActionListener中,那么代码就很好看了,不用那么多引用了
+button.addActionListener((event: ActionEvent) => counter += 1)
+能够使用这样的语法,你需要提供一个隐式转换,我们将会在21章讨论
+在这里面简单的写一个例子
+implicit def makeAction(action: (ActionEvent) => Unit) =
+new ActionListener {
+	override def actionPerformed(event: ActionEvent) { action(event) }
+}
+八、Currying 一个函数支持多个参数形式,function()(),如果参数不填写全,则说明函数结果返回值还是一个函数
+1.定义演变过程
+def mul(x: Int, y: Int) = x * y 函数接受两个参数
+def mulOneAtATime(x: Int) = (y: Int) => x * y 这个函数是接受一个函数,然后产生一个新的function函数
+mulOneAtATime(6)(7) 表示6 * 7
+严格的讲,mulOneAtATime(6) 产生一个函数 (y: Int) => 6 * y. 产生的函数 应用于参数 7 , 产生最后结果42.
+2.这里有一个简短的定义curried函数
+def mulOneAtATime(x: Int)(y: Int) = x * y
+可以看到,有两个参数,使用了两组参数方式,每填写一个参数,则返回的还是一个函数
+3.例子
+val a = Array("Hello", "World")
+val b = Array("hello", "world")
+a.corresponds(b)(_.equalsIgnoreCase(_))
+函数定义
+def corresponds[B](that: Seq[B])(p: (A, B) => Boolean): Boolean
+这个序列化的参数和断言函数参数是curried参数分割的.
+
+这个类型的推论,可以推算出B,
+在我们的例子中,that是String的字符串数组,因此p校验函数希望(String, String) => Boolean
+_.equalsIgnoreCase(_) 表示 (a: String, b: String) => a.equalsIgnoreCase(b).
+九、Control Abstractions,即函数看起来像语言的关键词
+1.在一个线程中运行函数block,该函数是没有参数,并且无返回值的函数
+def runInThread(block: () => Unit) {
+	new Thread {
+		override def run() { block() }
+	}.start()
+}
+调用:
+runInThread { 
+	() => println("Hi"); Thread.sleep(10000);  println("Bye") 
+}
+2.应该避免使用(),使用符号:,修改
+def runInThread(block: => Unit) {
+	new Thread {
+		override def run() { block }
+	}.start()
+}
+调用
+runInThread { println("Hi"); Thread.sleep(10000); println("Bye") }
+3.scala可以构建Control Abstractions,即函数看起来像语言的关键词
+例如,我们实现一个函数,作用类似于while语句
+def until(condition: => Boolean)(block: => Unit) {
+	if (!condition) {//条件失败
+		block //阻塞
+		until(condition)(block) //退出阻塞后,重新调用,确保真的确实可以退出阻塞了
+	}
+}
+
+调用,直到x=0的时候,就要一直阻塞下去
+var x = 10
+until (x == 0) {
+	x -= 1
+	println(x)
+}
+或者写成
+var x = 10
+until (x == 0) ({
+	x -= 1
+	println(x)
+})
+
+调用简写until(x == 0, { ... }),相当于第二个参数是{}函数块
+或者写全的话:
+until(x == 0)({ ... })
+十、return表达式
+scala中,你不需要使用return语句返回一个函数值.
+然后在control abstractions中,你使用return语句是很有用的
+def indexOf(str: String, ch: Char): Int = {
+	var i = 0
+	until (i == str.length) {
+		if (str(i) == ch) return i
+		i += 1
+	}
+	return -1
+}
