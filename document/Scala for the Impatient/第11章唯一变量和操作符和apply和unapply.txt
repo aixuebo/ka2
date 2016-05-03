@@ -1,0 +1,109 @@
+Identifiers contain either alphanumeric or operator characters.
+Unary and binary operators are method calls.
+Operator precedence depends on the first character, associativity on the last. 
+The apply and update methods are called when evaluating 	expr(args).
+Extractors extract tuples or sequences of values from an input 
+一、唯一标识符
+用于变量的name,scala中选择更灵活,可以任意字符都可以作为变量,包括字母、数字、下划线等。
+二、插入操作
+1.a 标识符 b,例如 1 to 10,等于 1.to(10)
+2. 1 -> 10 表示1.->(10)
+在你的class中可以定义任意操作符
+(n1 / d1) × (n2 / d2) = (n1n2 / d1d2) 
+class Fraction(n: Int, d: Int) { 
+	private int num = ...
+	private int den = ...
+	def *(other: Fraction) = new Fraction(num * other.num, den * other.den) 
+} 
+三、一元操作
+1.1 toString 与 1.toString() 方法相同
+2.+ - ！ ~ 这四个操作符是被允许做前缀的,出现在参数之前,他会被转换为调用a.unary_ 方法操作
+例如	-a 表示 a.a.unary_ -  
+！a 表示a.a.unary_ !
+四、分配操作符
+1.a operator= b  等于a = a operator b 	例如
+a += b 等于 a = a + b
+2.详细情况
+a.>=  <=  ！=这三个是不支持 operator=操作的
+b.操作符以=开头的,都不会被支持,例如 ==    ===  =/=
+五、操作符号的优先级,这部分最好编程的时候使用()进行优先级设计,不然不容易读,又要背下来优先级的,太麻烦
+六、结合性
+1.当有了一连串符号操作,并且符号的优先级相同,则他们会从左到右，或者从右到左的顺序去执行。
+2.操作符以:结尾
+3.::操作符表示以右边的相结合
+例如 1 :: 2 :: Nil   表示 1与右边的结合,也就是说 右边的要单独运算,即1 :: (2 :: Nil) 
+::操作符的背后原理是 2 ：： Nil 即Nil.:: (2)就是参数是2,后面的是方法名,前面的是参数
+七、apply和update方法
+1.f(arg1, arg2, ...)  与 f.apply(arg1, arg2, ...) 方法一样,因此创建一个class的时候就省略了new关键词,使用伴随对象即可。
+class Fraction(n: Int, d: Int) { ... 
+} 
+object Fraction {
+	def apply(n: Int, d: Int) = new Fraction(n, d) 
+}
+因此:
+Fraction(3, 4) instead of new Fraction(3, 4) 
+2.f(arg1, arg2, ...) = value  表示 f.update(arg1, arg2, ..., value) 
+例如
+val scores = new scala.collection.mutable.HashMap[String, Int] 
+scores("Bob") = 100 // Calls scores.update("Bob", 100)
+val bobsScore = scores("Bob") // Calls scores.apply("Bob") 
+八、元素的提取,apply的反应用
+1.apply是拿构造函数的参数去生成一个对象的实例化的过程
+2.unapply是拿一个实例对象去抽取出他的属性的过程
+3.例子
+以前章节提到过的Fraction类,
+var Fraction(a, b) = Fraction(3, 4) * Fraction(2, 5)
+a和b就代表这最终抽取出来的值,后续可以使用这两个值
+或者进行模式匹配的时候使用
+case Fraction(a, b) => ...
+4.通常模式匹配都会有失败的可能,因此unapply的返回值是一个Option对象
+  该对象包含了一组tuple,例如我们的例子3,返回值是Option[(Int, Int)]
+
+5.如何重新定义提取方法unapply
+object Fraction {
+	def unapply(input: Fraction) =
+		if (input.den == 0) None else Some((input.num, input.den))
+}
+我们可以看到,返回值就是两个int组成的tuple。
+6.不一定要求apply和unapply动作一定是相反的,只要定义好了就可以了,两者不一定有关系。
+7.unapply方法可以在任意object对象中被定义,与class无关系,不一定必须是伴随对象
+例如 通过String名字,获取first and last names
+val author = "Cay Horstmann"
+val Name(first, last) = author // Calls Name.unapply(author)
+调用的是Name这个object的unapply方法,将author作为参数传递进去,返回Option[(String, String)]
+object Name {
+	def unapply(input: String) = {
+		val pos = input.indexOf(" ")
+		if (pos == -1) None
+		else Some((input.substring(0, pos), input.substring(pos + 1)))
+	}
+}
+注意:这个例子中,没有Name这个class
+8.每一个case class都会自动的使用apply和unapply方法
+例如:
+case class Currency(value: Double, unit: String) 构造一个Currency对象,
+Currency(29.95, "EUR") // Calls Currency.apply
+case Currency(amount, "USD") => println("$" + amount) // Calls Currency.unapply
+九、抽取一个参数或者无参数的对象
+1.抽取一个参数的值
+object Number {
+	def unapply(input: String): Option[Int] =
+		try {
+			Some(Integer.parseInt(input.trim))
+		} catch {
+			case ex: NumberFormatException => None
+		}
+}
+val Number(n) = "1729" //将抽取整数,并且用n表示
+十、unapplySeq方法抽取成一个Seq[String]集合
+1.将一个value抽取成任意一个序列化的结果集,需要调用unapplySeq方法,返回一个Option[Seq[A]]对象,A表示抽取value的类型
+object Name {
+	def unapplySeq(input: String): Option[Seq[String]] =
+		if (input.trim == "") None else Some(input.trim.split("\\s+"))
+}
+2.也可以匹配任意数量的变量
+author match {
+case Name(first, last) => ...
+case Name(first, middle, last) => ...
+case Name(first, "van", "der", last) => ...
+}
