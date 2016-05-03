@@ -1,0 +1,21 @@
+Scala has a powerful pattern matching mechanism that has a number of applications: switch statements, type inquiry, and
+“destructuring” (getting at the parts of complex expressions). In addition, Scala provides case classes, which are optimized to
+work with pattern matching.
+The key points of this chapter are:
+
+• A pattern can include an arbitrary condition, called a guard.
+• You can match on the type of an expression; prefer this over isInstanceOf/asInstanceOf.
+• You can match patterns of arrays, tuples, and case classes, and bind parts of the pattern to variables.
+• In a for expression, nonmatches are silently skipped.
+• A case class is a class for which the compiler automatically produces the methods that are needed for pattern
+matching.
+• The common superclass in a case class hierarchy should be sealed.
+• Use the Option type for values that may or may not be present—it is safer than using null.
+
+
+摘要
+1.match表达式更好于switch,without fall-through.
+2.如果没有找到匹配的模式,则会有MatchError异常被抛出,因此使用_去匹配,避免出现问题
+
+
+一、
