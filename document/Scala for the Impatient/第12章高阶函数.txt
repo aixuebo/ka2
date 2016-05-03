@@ -1,14 +1,9 @@
-• A function argument specifies behavior that should be executed later.
-• Many collection methods take function parameters, applying a function to the values of the collection.
-• There are syntax shortcuts that allow you to express function parameters in a way that is short and easy to read.
-• You can create functions that operate on blocks of code and look much like the built-in control statements.
-
-
 摘要
 1.function 函数在scala中是一等公民,就像数字一样
   函数式变成中,函数是一等公民,可以被传递参数和操作,就像其他数据类型一样。
 2.可以创建匿名的function函数,通常匿名函数会被放到其他函数中当作参数
-3.
+3.function当作参数,可以有外界传递function不同,结果现实不同
+4.需要集合类,比如map可以使用function当作参数,将集合的所有value都应用于该function函数,
 
 一、函数和函数值
 1.函数是一等公民,一个函数可以被存储在一个变量中

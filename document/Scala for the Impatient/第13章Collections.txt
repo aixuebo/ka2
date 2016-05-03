@@ -1,0 +1,256 @@
+
+第10节的第6部分,日后要重新看一下
+十三、Streams - 17节都没有看完,太难看了,stream的,需要日后看
+
+
+摘要
+1.比如我们已经遇到的arrays和maps
+2.所有的集合都extends Iterable trait
+3.有三个主要的集合分类, sequences, sets, and maps.
+4.每一个集合都有可变和不可变两种集合
+5.set是无序的集合
+6.scala的list,要么是空的,要么是head和tail组成的List
+7.LinkedHashSet虽然是set,但是保持了插入的顺序排列该set,SortedSet是按照一些方式对元素进行排序处理
+8.+方法,将元素添加到一个无序的集合中
++: 和 :+ 方法是prepend or append方式像seq中添加数据
+++是连接两个集合,-he --是删除一些元素
+9.Mapping, folding, and zipping函数是可以应用于集合的
+
+
+
+一、集合的主要trait
+1.主要的trait继承关系
+Iterable trait 有三个子类Seq、Map、Set trait
+IndexedSeq extends Seq
+SortedSet extends Set
+SortedMap extends Map
+2.Iterable所有集合类都是他的子类,保证集合可以一个一个元素迭代
+例如
+val coll = ... // some Iterable
+val iter = coll.iterator
+while (iter.hasNext)
+ iter.next()
+3.seq和IndexedSeq区别
+seq是按照顺序的存储所有的value,比如array或者list
+IndexedSeq是允许通过index快速的随机访问某一个元素的队列
+例如ArrayBuffer是index,但是linked list 不是
+4.set是无序的集合,SortedSet是按照一定顺序去访问集合的每一个元素
+5.Map是(key, value)键值对的集合,SortedMap是按照key的顺序访问每一个map的集合
+6.在java中,ArrayList和LinkedList都实现了List接口,当随机访问的时候,写入会没有效率
+7.scala的集合都可以用伴随对象的apply方法构建一个实例
+例如:
+Iterable(0xFF, 0xFF00, 0xFF0000)
+Set(Color.RED, Color.GREEN, Color.BLUE)
+Map(Color.RED -> 0xFF0000, Color.GREEN -> 0xFF00, Color.BLUE -> 0xFF)
+SortedSet("Hello", "World")
+
+二、可变与不可变的集合
+1.可变、不可变都有共同的父类,scala.collection.Map
+2.不可变的对象,是不允许被更改的,因此可以安全的分享出去,甚至分享给多线程也安全
+例如scala.collection.immutable.Map
+3.scala中更偏爱使用不可变对象
+scala.collection包中的伴随对象,产生的默认都是不可变对象实例
+例如scala.collection.Map("Hello" -> 42) 产生不可变Map
+4.使用可变的对象
+import scala.collection.mutable
+5.如果你没有过不可变集合的编程经验,你可能很难理解如何使用不可变对象,其实他就是产生一个新的集合,代替老的集合,老集合不变。
+例如如果number是一个不可变set,那么numbers + 9将会产生一个新的set集合
+三、Sequences 序列化对象
+1.重要的不可变对象的继承关系
+Iterable trait 
+List、Stream、Stack、Queue、IndexedSeq是Iterable trait 子类
+Vector、Range 是IndexedSeq的子类
+2.Vector
+Vector是等同于 不可变的ArrayBuffer对象,是可以通过index索引方式快速访问集合的元素
+Vectors实现是一个树,每一个node一直可以有32个子节点。
+一个百万元素的Vectors,只需要4层节点即可,因为32的4次方约等于一百万。
+3.Range
+Range代表了一个整数的序列,例如0,1,2,3,4,5,6,7,8,9
+Range对象不会存储所有的序列值,他只会存储start, end, and increment
+Range对象构造使用to和until方法即可
+4.重要的可变对象的继承关系
+Seq的trait是根节点
+Stack、Queue、PriortyQueue、LinkedList、DoubleLinkedList、IndexedSeq trait 是Seq的trait的子类
+ArrayBuffer是IndexedSeq trait的子类
+四、List
+1.scala中,list是Nil(空的List)或者有head和tail元素的一个实例对象
+例如:val digits = List(4, 2)
+digits.head是4,digits.tail是List(2)
+而且digits.tail.head是2,digits.tail.tail是Nil
+2.::操作符
+9::digits 返回res12: List[Int] = List(9, 4, 2) ,他会产生新的集合,并且新的元素追加在集合的前面,即9在最前面。
+等同于9 :: 4 :: 2 :: Nil 等同于 9 :: (4 :: (2 :: Nil))
+3.循环list
+a.可以跟java一样,使用for循环
+b.新的方式在scala中循环List,求集合的和
+	def sum(lst: List[Int]): Int =
+		if (lst == Nil) 0 else lst.head + sum(lst.tail)
+c.使用模式匹配
+def sum(lst: List[Int]): Int = lst match {
+	case Nil => 0
+	case h :: t => h + sum(t) // h is lst.head, t is lst.tail,t仍然是一个List集合
+}
+d.使用List自带的求和工具
+List(9, 4, 2).sum // Yields 15
+
+五、可变的List
+1.只要奇数位置的数据
+val lst = scala.collection.mutable.LinkedList(1, -2, 7, -9,8,10,12,16)
+var cur = lst
+while (cur != Nil && cur.next != Nil) {
+	cur.next = cur.next.next
+	cur = cur.next
+}
+cur,空集合,因为他循环完了,自然就没有数据了
+lst,最终集合,scala.collection.mutable.LinkedList[Int] = LinkedList(1, 7, 8, 12)
+
+变量cur用于循环每一个元素,一旦循环完了,cur就是一个空的集合
+2.将负数转换成0
+val lst = scala.collection.mutable.LinkedList(1, -2, 7, -9)
+var cur = lst
+while (cur != Nil) {
+	if (cur.elem < 0) cur.elem = 0
+	cur = cur.next
+}
+3.list可以保持插入的顺序被添加到集合里面
+六、Set
+1.set存储不同的元素,添加一个已经存在的元素,则不会有任何影响
+例如 Set(2, 0, 1) + 1 结果还是Set(2, 0, 1).
+2.set不能保持元素插入的顺序
+3.默认set实现是hashSet
+4.set虽然不按照插入顺序添加元素,但是他可以允许很快速的访问集合的元素内容.
+5.linked hash set是可以知道元素插入顺序的
+例如:
+val weekdays = scala.collection.mutable.LinkedHashSet("Mo", "Tu", "We", "Th", "Fr")
+6.如果你想要对set进行排序,使用SortedSet
+例如scala.collection.immutable.SortedSet(1, 2, 3, 4, 5, 6),该set是使用红黑树方式进行排序的
+7.scala2.9前是没有可变的sorted set的,如果你需要的话,则使用java.util.TreeSet
+8.集合的操作
+union, intersect, and diff 方法 也可以简写成 |, &, and &~ 或者union为++,difference为--
+例如
+val primes = Set(2, 3, 5, 7)
+val digits = Set(1, 7, 2, 9)
+digits union primes 是 (1, 2, 3, 5, 7, 9)
+digits & primes 是Set(2, 7)
+digits -- primes 是Set(1, 9)
+七、添加和移除元素的操作
+1.符号规则
++方法,将元素添加到一个无序的集合中
++: 和 :+ 方法是prepend or append方式像seq中添加数据
+++是连接两个集合,-he --是删除一些元素
+例如:
+Vector(1, 2, 3) :+ 5 // Yields Vector(1, 2, 3, 5)
+1 +: Vector(1, 2, 3) // Yields Vector(1, 1, 2, 3)
+结果是产生了一个新的集合,老集合没有被修改
+2.可变的集合,有+=操作像集合的后面追加元素,
+val numbers = scala.collection.mutable.ArrayBuffer(1, 2, 3)
+numbers :+= 5 与 numbers += 5 // Adds 5 to numbers,结果res22: numbers.type = ArrayBuffer(1, 2, 3, 5),产生了新的对象
+numbers +:= 5 //ArrayBuffer(5,1, 2, 3) 前面追加数据
+3.移除元素
+Set(1, 2, 3) - 2 // Yields Set(1, 3)
+4.添加多个元素
+coll ++ coll2
+5.添加和删除元素规则总结,详细参见excel,关于集合的总结
+a. Append (:+) or prepend (+:) to a sequence. 向前和向后追加元素
+b. Add (+) to an unordered collection. 向无序的集合中追加元素
+c. Remove with -. 删除一个元素
+d. Use ++ and -- for bulk add and remove.添加和删除一堆元素
+e. For lists, :: and ::: are preferred.
+f. Mutations are += ++= -= --=.
+g. For sets, I prefer ++ & --. set集合,宁愿使用++ 或者--
+h. I stay away from ++: +=: ++=:.
+
+八、公共的方法
+1.Iterable trait公共方法,参见excel:集合类Iterable trait公共方法
+2.Seq trait公共方法,参见excel:集合类Iterable trait公共方法
+
+九、Mapping a Function 映射函数
+1.map函数
+你想要改变集合的每一个元素,使用map方法,每一个元素作用于一个function函数,产生一个新的集合
+例如
+val names = List("Peter", "Paul", "Mary")
+names.map(_.toUpperCase) // List("PETER", "PAUL", "MARY")
+
+相同的方式:
+for (n <- names) yield n.toUpperCase
+2.flatMap函数
+如果function函数产生的不是一个单独的value,而是一个集合,你想要结果是连接所有的集合的内容,应该使用flatMap
+例如:
+def ulcase(s: String) = Vector(s.toUpperCase(), s.toLowerCase()) 产生一个集合,包含大小写的
+names.map(ulcase) 产生的结果是List(Vector("PETER", "peter"), Vector("PAUL", "paul"), Vector("MARY", "mary"))
+names.flatMap(ulcase) 产生的结果是List("PETER", "peter", "PAUL", "paul", "MARY", "mary")
+3.如果flatMap函数返回一个Option对象,则这个最后的结果只有Some(v),没有null的
+4.collect方法
+循环每一个元素,进入function中,产生最终的输出
+例如
+"-3+4".collect { case '+' => 1 ; case '-' => -1 } // Vector(-1, 1)
+
+十、reduce、fold、scan函数
+1.map方法使每一个元素应用与一元的函数
+这Reducing, Folding, and Scanning方法应用于合并操作的二元函数。
+2.reduceLeft
+List(1, 7, 2, 9).reduceLeft(_ - _)
+他会让1和7进行运算,结果与2进行计算,以此类推
+3.reduceRight
+List(1, 7, 2, 9).reduceRight(_ - _)
+他会让2-9,然后7-(2-9),然后1-(7-(2-9))
+4.foldLeft
+如果开始的时候有一个初始化值,那么就把reduceLeft转换为foldLeft方法
+例如
+List(1, 7, 2, 9).foldLeft(0)(_ - _)
+0 - 1 - 7 - 2 - 9
+5.注意事项
+初始化的值,和操作是curried形式的参数,所以scala的操作结果返回类型是以初始化函数为准的。
+例如List(1, 7, 2, 9).foldLeft("")(_ + _),返回String = 1729
+
+你可以写如下方式:
+(0 /: List(1, 7, 2, 9))(_ - _)
+/:符号表示假设提醒你形状是一个tree
+
+6.
+val freq = scala.collection.mutable.Map[Char, Int]()
+for (c <- "Mississippi") freq(c) = freq.getOrElse(c, 0) + 1
+// Now freq is Map('i' -> 4, 'M' -> 1, 's' -> 4, 'p' -> 2)
+
+与下面的同样效果
+(Map[Char, Int]() /: "Mississippi") {
+(m, c) => m + (c -> (m.getOrElse(c, 0) + 1))
+}
+
+日后本节要重新看一遍,每太看懂
+7.scanLeft方法
+(1 to 10).scanLeft(0)(_ + _)
+yields all partial sums:
+Vector(0, 1, 3, 6, 10, 15, 21, 28, 36, 45, 55)
+
+十一、Zipping
+1.该方法是将两个集合关联起来
+val prices = List(5.0, 20.0, 9.95)
+val quantities = List(10, 2, 1)
+prices zip quantities
+返回值List[(Double, Int)] = List((5.0, 10), (20.0, 2), (9.95, 1))
+2.zip结果应用于map
+(prices zip quantities) map { p => p._1 * p._2 } //使用p._1表示cuple的第一个元素
+返回值List(50.0, 40.0, 9.95)
+3.如果两个集合的元素数量不一致,则以集合最小的数量为准
+List(5.0, 20.0, 9.95) zip List(10, 2)
+返回值 List((5.0, 10), (20.0, 2))
+4.zipAll方法,可以有默认值,让短的集合用默认值代替
+List(5.0, 20.0, 9.95).zipAll(List(10, 2), 0.0, 1)
+返回值List((5.0, 10), (20.0, 2), (9.95, 1))
+5.zipWithIndex
+"Scala".zipWithIndex
+Vector(('S', 0), ('c', 1), ('a', 2), ('l', 3), ('a', 4))
+"Scala".zipWithIndex.max 返回最大的元素是('l', 3)
+"Scala".zipWithIndex.max._2 获取返回值是3
+十二、Iterators
+1.Source.fromFile 产生一个iterator,因为有可能文件不能全部读取到内存中,因此返回的是iterator
+2.Iterable有很多方法,比如grouped和sliding
+3.迭代方式
+for (elem <- iter)
+或者
+while (iter.hasNext)
+  iter.next()
+十三、Streams - 17节都没有看完,太难看了,stream的,需要日后看
+
+

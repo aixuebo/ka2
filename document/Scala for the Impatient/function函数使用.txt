@@ -34,3 +34,100 @@ def corresponds[B](that: Seq[B])(p: (A, B) => Boolean): Boolean
 这个类型的推论,可以推算出B,
 在我们的例子中,that是String的字符串数组,因此p校验函数希望(String, String) => Boolean
 _.equalsIgnoreCase(_) 表示 (a: String, b: String) => a.equalsIgnoreCase(b).
+7.map和flatMap函数
+a.map函数
+你想要改变集合的每一个元素,使用map方法,每一个元素作用于一个function函数,产生一个新的集合
+例如
+val names = List("Peter", "Paul", "Mary")
+names.map(_.toUpperCase) // List("PETER", "PAUL", "MARY")
+
+相同的方式:
+for (n <- names) yield n.toUpperCase
+b.flatMap函数
+如果function函数产生的不是一个单独的value,而是一个集合,你想要结果是连接所有的集合的内容,应该使用flatMap
+例如:
+def ulcase(s: String) = Vector(s.toUpperCase(), s.toLowerCase()) 产生一个集合,包含大小写的
+names.map(ulcase) 产生的结果是List(Vector("PETER", "peter"), Vector("PAUL", "paul"), Vector("MARY", "mary"))
+names.flatMap(ulcase) 产生的结果是List("PETER", "peter", "PAUL", "paul", "MARY", "mary")
+c.如果flatMap函数返回一个Option对象,则这个最后的结果只有Some(v),没有null的
+
+8.collect函数
+def collect[B](pf: PartialFunction[A, B]): Array[B]
+
+描述:
+
+通过应用一个部分函数作用在数组的每一个元素上然后生成一个新的集合。
+
+
+参数说明:
+
+
+B ：返回集合中元素的类型。
+pf ：过滤数组元素的部分函数。
+
+返回值:
+
+通过部分函数过滤处理后的新集合。
+
+例子:
+
+
+val newAry = (1 to 10).collect{
+    case x 
+        if x % 2 == 0 => -x 
+    case x 
+        if x % 2 == 1 => x +1  
+}
+
+newAry: scala.collection.immutable.IndexedSeq[Int] = Vector(2, -2, 4, -4, 6, -6, 8, -8, 10, -10)
+
+9.reduce、fold、scan
+a.map方法使每一个元素应用与一元的函数
+这Reducing, Folding, and Scanning方法应用于合并操作的二元函数。
+b.reduceLeft
+List(1, 7, 2, 9).reduceLeft(_ - _)
+他会让1和7进行运算,结果与2进行计算,以此类推
+c.reduceRight
+List(1, 7, 2, 9).reduceRight(_ - _)
+他会让2-9,然后7-(2-9),然后1-(7-(2-9))
+d.foldLeft
+如果开始的时候有一个初始化值,那么就把reduceLeft转换为foldLeft方法
+例如
+List(1, 7, 2, 9).foldLeft(0)(_ - _)
+结果 0 - 1 - 7 - 2 - 9
+e.注意事项
+初始化的值,和操作是curried形式的参数,所以scala的操作结果返回类型是以初始化函数为准的。
+例如List(1, 7, 2, 9).foldLeft("")(_ + _),返回String = 1729
+
+你可以写如下方式:
+(0 /: List(1, 7, 2, 9))(_ - _)
+/:符号表示假设提醒你形状是一个tree
+
+f.scan函数
+scanLeft方法
+(1 to 10).scanLeft(0)(_ + _)
+yields all partial sums:
+Vector(0, 1, 3, 6, 10, 15, 21, 28, 36, 45, 55)
+
+10.zip
+a.该方法是将两个集合关联起来
+val prices = List(5.0, 20.0, 9.95)
+val quantities = List(10, 2, 1)
+prices zip quantities
+返回值List[(Double, Int)] = List((5.0, 10), (20.0, 2), (9.95, 1))
+b.zip结果应用于map
+(prices zip quantities) map { p => p._1 * p._2 } //使用p._1表示cuple的第一个元素
+返回值List(50.0, 40.0, 9.95)
+c.如果两个集合的元素数量不一致,则以集合最小的数量为准
+List(5.0, 20.0, 9.95) zip List(10, 2)
+返回值 List((5.0, 10), (20.0, 2))
+d.zipAll方法,可以有默认值,让短的集合用默认值代替
+List(5.0, 20.0, 9.95).zipAll(List(10, 2), 0.0, 1)
+返回值List((5.0, 10), (20.0, 2), (9.95, 1))
+e.zipWithIndex
+"Scala".zipWithIndex
+Vector(('S', 0), ('c', 1), ('a', 2), ('l', 3), ('a', 4))
+"Scala".zipWithIndex.max 返回最大的元素是('l', 3)
+"Scala".zipWithIndex.max._2 获取返回值是3
+
+11.
