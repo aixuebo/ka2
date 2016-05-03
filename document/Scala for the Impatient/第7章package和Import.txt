@@ -1,0 +1,154 @@
+ Such a clause limits the visible members. Now a com.horstmann.collection package would no longer be accessible as collection.  不懂什么意思  
+
+
+摘要
+  1.scala的package和import比java的更加灵活。
+  2.package可以像内部类一样支持嵌套。
+  3.package path不是绝对的路径   4.包对象相当于java的静态类,可以有静态的方法和属性   5.Import可以在任意地方被调用   6.Import能够重新对class进行重命名以及隐藏一些class   7.java.lang, scala, and Predef are 总是默认被导入
+
+    一、package
+   1.package在scala的目的与java的是一样的,就是在大型项目中管理命名空间的,使名字相同,但是不在同一个包下的class可以不冲突的使用。
+   2.package支持嵌套
+    package com { 	package horstmann { 
+		package impatient { 
+			class Employee ... 
+		}
+	 } 
+     }
+  Employee可以被任何类访问到。
+   3.package不像定义class或者object一样,一个package可以被定义在多个文件中,例如刚刚的文件是Employee.scala.我们可以定义Manager.scala文件:
+   package com { 	package horstmann { 
+		package impatient { 
+			class Manager 		}
+	 } 
+    }
+  4.注意,包名字的关系,与文件的具体关系没有映射,也就是说上面两个文件可以再操作系统的任意文件夹下进行存储。
+  5. 同样,也可以在同一个文件里面定义多个package
+      package com { 	package horstmann { 
+		package impatient { 
+			class Employee ... 
+		}
+	 } 
+     }
+     package org{
+  	package bigjava{
+		class Counter
+	}
+     }
+  二、scope rule 作用于规则
+  1.包的嵌套后的作用域问题
+  package com { 	package horstmann { 
+		object Utils { 			def percentOf(value: Double, rate: Double) = value * rate / 100 
+		}
+		package impatient{
+			class Employee{
+				def giveRalse(rate:scala.Double){
+					salary += Utils.percentof(salary,rate)
+				}
+			}
+		}
+	}
+  }
+ 注意:
+  a.Utils.percentof中Util class 被定义在Employee的父package中,一切定义在父package中的都是在作用域里面的,因此是不用使用com.horstman.Utils这种全路径的.
+  b.com下的所有包和 文件都是在作用域下
+   2.scala中包名默认是相对的,很容易冲突
+  package com{
+    package horseman{
+          package impatient{
+		class Manager{
+			var subordinates = new collection.mutable.ArrayBuffer[Employee]
+		}
+	}
+      }
+  }
+  a.scala包是被自动导入的,因此scala.collection就是collection
+  b.scala的相对包名冲突
+   在另外一个文件中有以下的定义
+  package com {      package horstmann { 
+	package collection { 
+	}	 
+   } 
+ } 
+ 现在Manager类就不能被编译了,他在com. horstmann. collection下寻找mutable,但是没有找到。
+  主要因为Manager累引用的是scala.collection下的路径,而不是可以被访问的相对路径。
+  在java中不会发生这样的问题,是因为总是从根目录下开始的绝对路径。
+  在scala中是相对的,在不同的file中很容易出现问题。
+  解决这个问题是使用_root_ 开头的导入,就是从根目录开始导入的绝对路径了
+  val subordinates = new _root_.scala.collection.mutable.ArrayBuffer[Employee] 
+  三、chain package 链条包
+    1.一个package名字可以是一个链条组成
+   package com.horstmann.impatient { 	// Members of com and com.horstmann are not visiblehere 
+	package people { 
+		class Person 
+	} 
+     }
+  Such a clause limits the visible members. Now a com.horstmann.collection package would no longer be accessible as collection.  不懂什么意思  
+   五、package object
+   1.一个package可以包含class,object,trait,但是不能定义函数和变量。可以通过包对象解决该问题
+  2.定义包对象,必须是与该包在同一个父包下定义,名字也要相同。
+  package com.horstmann.impatient 
+  package object people { 	val defaultName = "John Q. Public" 
+  } 
+  package people { 
+	class Person { 
+		var name = defaultName // 定义一个常亮
+  	} 
+  } 
+  a. defaultName的值没有被限制,因为他们在同一个package下
+  b.在别的地方要是想访问的话,则com.horstmann.impatient.people.defaultName 
+  3.背后原理
+  package object被JVM编译成静态类,里面可以有静态方法和静态field,class的名字与package一样,
+  例如:本例中产生了com.horstmann.impatient.people.package 类,里面有defaultName 的静态field。
+  六、包的可见性
+  1.java中,一个class的成员,不会声明对该package内包含的class的可见性,即public、private、protected对其他class的可见性,但scala有可以完成这样的任务.
+   package com.horstmann.impatient.people 
+	class Person { 		private[people] def description = "A person with name " + name ... 
+	} 
+  这个例子表示该description仅仅在该people包下可见。
+  2.可以扩展一个属性或者方法的可见性在其他package包下
+   private[impatient] def description = "A person with name " + name 
+   该例子表示该description可以在impatient包下被可见，
+  七、import导入
+   1.可以用简短的名字代替长名字
+    例如:
+    import java.awt.Color  我们可以使用Color代替import java.awt.Color 
+   2.如何导入一个包下所有的成员
+    import java.awt._     这个与java的*一样,只是scala中*可以被用于定义文件名
+   3.导入一个class或者object下所有的field或者method方法
+     这种方式像java中导入静态的类一样,import static
+   import java.awt.Color._    val c1 = RED // Color.RED    val c2 = decode("#ff0000") // Color.decode 
+   4.一旦你导入了一个packate,你可以使用该短名称访问该包的子包
+   eg
+    import java.awt._ 
+	def handler(evt: event.ActionEvent) { // java.awt.event.ActionEvent 
+	}   八、import可以在任意地方被执行
+  1.与java不一样,不用必须定义在file文件的最上面。
+  2.import的作用域在一个{}里面,例如
+  class Manager { 
+	import scala.collection.mutable._ 
+	val subordinates = new ArrayBuffer[Employee] 
+  } 
+  这个是非常有用的特性,特别在使用通配符进行import中.
+  3.在最需要的地方调用import,你能够更加减少冲突的可能性。
+  九、如何重新命名或者隐藏一些成员
+  1.如果想要从一个package钟导入少量有用的成员,使用以下内容:
+   import java.awt.{Color, Font} 
+  2.重新命名
+   import java.util.{HashMap => JavaHashMap} 
+   import scala.collection.mutable._ 
+   现在JavaHashMap代表java.util.HashMap
+    HashMap代表scala.collection. mutable.HashMap
+  3.如何隐藏一个导入的类
+   import java.util.{HashMap => _, _}  
+   import scala.collection.mutable._ 
+   HashMap =>_ 表示_去代表HashMap别名,_又表示通配符,因此就等于隐藏掉了,后面的_表示其他类不被隐藏。
+   因此现在HashMap就是很明确的指向scala.collection.mutable.HashMap 
+   而java.util.HashMap 被隐藏掉了
+  十、隐式的导入
+   1.每一个scala程序都会执行被隐藏的package名称
+   import java.lang._ 
+   import scala._ 
+   import Predef._ 
+   2.上面的三种import导入是一个比一个优先级高,后面的导入会覆盖掉前面曾经导入过的类
+    例如scala.StringBuilder 覆盖掉了java.lang.StringBuilder ,因此避免了冲突。

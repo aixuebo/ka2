@@ -1,0 +1,95 @@
+第六章这部分要重新看一下,没太看懂
+  第十节、十一节、十二节日后要重新看,并且记录笔记
+    
+  摘要
+  1.extends和final语法
+  2.override覆盖一个方法
+  3.只有主构造函数才能调用父类的构造函数
+  4.你可以override一个field
+  一、extends继承
+  1.与java一样,使用extends继承
+  class Employee extends Person { 
+	var salary: 0.0
+    } 
+   子类可以覆盖掉父类的
+     2.声明一个final class,他不能被extend.
+    3.你也可以声明final的method、field,这些不会被子类override.
+     二、override 覆盖方法
+     1.scala中,必须使用override关键词去修饰父类存在,并且不是abstract的方法,
+     class Person {
+	override def toString = getClass.getName + "[name=" + name + "]" 
+     }
+    2.override关键词在一些条件下,可以给出有用的提示信息
+    a.当你拼错了方法名字的时候,使用override会有提示信息
+    b.当你提供了一个错误参数类型的时候
+    c.当你介绍了一个新的方法在父类中,该方法与子类重发冲突的时候 
+    3.与java一样,使用super调用父类的方法
+    class Employee extends Person {
+	override def toString = super.toString + "[salary=" + salary + "]" 
+    }
+   调用了Person.toString()方法
+   三、校验类型 和 类型转换
+   1.测试一个实例是否属于一个class,使用isInstanceOf方法,如果返回true,则使用asInstanceOf方法去强行转换。
+    if (p.isInstanceOf[Employee]) { 	val s = p.asInstanceOf[Employee] //s是 Employee类型
+     } 
+   如果返回true,说明p是Employee或者Employee的子类。
+   如果p是null,则返回false,p.asInstanceOf[Employee]  = null
+   如果p不是Employee,则p.asInstanceOf[Employee] 会抛异常
+  2.p.getClass == classOf[Emplyee]
+    这个只是测试p时Emplyee的实例对象,不是Emplyee的子类实例。
+    classOf方法被定义在scala.Predef中,总是会被导入进来的
+  3.模式匹配是更好的方式
+   p match { 	case s: Employee => ... // Process s as an Employee 
+	case _ => ... // p wasn't an Employee 
+    } 
+   四、protected的field和method
+   五、父类的构造函数
+   1.因为一个class只能有一个主要构造函数,若干个辅助函数,所有的辅助函数要开始调用其他辅助函数或者主函数。
+     因此一个辅助的构造函数绝不会执行父类的构造函数。
+  2.子类的辅助构造函数最终会调用子类的主要构造函数,而子类的构造函数才能调用父类的构造函数。
+  3.例子
+   class Employee(name: String, age: Int, val salary : Double) extends Person(name, age) 
+  4.scala中不会有super(params),没有这种语法,都是通过class子类定义的去执行的父类
+
+  六、override field
+   1.scala中field都是用val或者var组成的,他提供了set/get方法。
+     2.如果覆盖掉该field,则只要重新set方法即可
+    这部分要重新看一下,没太看懂
+  
+  七、匿名的子类
+    1.定义匿名类
+    val alien = new Person("Fred") { 	def greeting = "Greetings, Earthling! My name is Fred." 
+     } 
+
+    2.定义一个方法,该方法要求参数是一个class,并且该class必须有一个特殊的方法
+   def meet(p: Person{def greeting: String}) { 
+	println(p.name + " says: " + p.greeting) 
+  } 
+   八、抽象类
+   1.定义
+    abstract class Person(val name: String) { 	def id: Int //定义一个抽象方法,没有方法体
+    } 
+   该类的抽象方法 不需要添加bastract,只要没有方法体实现就可以,这点跟java不一样
+  2.子类实现
+    子类不用有overrid关键字
+   class Employee(name: String) extends Person(name) {
+	 def id = name.hashCode // override 关键字不是必要的
+   } 
+  九、abstract field 抽象属性
+   1.与抽象方法一样,class是也可以定义抽象属性,他很简单,就是没有初始化value值即可
+   abstract class Person { 
+	val id: Int  //没有初始化的抽象属性,该属性只有get方法,没有set方法,因为他是val的
+  	var name: String//没有初始化的抽象属性,该属性有get和set方法
+  }
+   上面的实现原理就是set/get方法是抽象的方法即可
+   2.具体的子类,必须提供具体的属性
+ 	class Employee(val id: Int) extends Person { //子类有具体的属性id赋值
+		var name = "" //为具体的name赋值
+	} 
+    十、构造顺序
+     这节要日后在读一下,有点乱,又不是很常用
+
+     十一、scala的继承关系
+     这节要日后在读一下,有点乱,又不是很常用 
+     十二、equal方法实现
+      这节要日后在读一下,有点乱,又不是很常用

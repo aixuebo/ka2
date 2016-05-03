@@ -1,0 +1,227 @@
+Scala allows you to grant access rights to specific classes. The private[ClassName] qualifier states that only methods of the given class can access the given field. Here, the ClassName must be the name of the class being defined or an enclosing class. (See Section 5.8, “Nested Classes,” on page 60 for a discussion of inner classes.) 
+In this case, the implementation will generate auxiliary getter and setter methods that allow the enclosing class to access the field. These methods will be public because the JVM does not have a fine-grained access control system, and they will have implementation-dependent names. 
+
+
+•4.class Person private(val id:Int)
+
+•概述
+•1.本章讲述的是scala如何实现一个class,scala的class比java更简洁
+•2.class的field属性自动的实现了set和get
+•3.可以为一个field自定义set/get方法,但是不能改变class的客户端,因为存在同一访问原则
+•4.使用@BeanProperty去产生一个JavaBean的get/set方法
+•5.class的主要构造函数与class的定义交织在一起了,class的构造函数的参数,会作为class的field使用。
+•并且主要的构造函数执行body内所有的语句块。
+•6.辅助的构造函数是可选择的,他们都被调用this主构造函数。
+•
+•一、简单的class和无参数的方法定义
+•1.简单的定义非常类似java
+•class Count{
+•   private var value = 0 //可变的 并且必须要对他进行初始化
+•     def increment() {  value += 1 } 方法默认是public级别的
+•     def current() = value 
+•}
+•调用
+•val myCount = new Count //or new Counter()
+•mycount.incrment
+•println(mycount.current)
+•因为current方法没有参数,因此可以省略掉()
+•为了编程规范,当一个方法改变了对象的状态,我们要使用(),当访问一个对象的属性值,不需要更改对象状态,我们省略().
+•因此改后:
+•mycount.incremeng()
+•println(mycount.current)
+•2.当无参数的方法存在的时候,我们可以强制声明方法的时候取消掉()
+•def current = value
+•因此调用的时候一定是mycount.current,不能有()
+•二、set/get属性
+•1.java中不让属性是public级别的,而是private级别的,让外界使用get/set访问这些属性
+•2.scaka中默认是public级别的,并且支持set/get方法
+•class Person{
+• var age = 0
+•}
+•scala编译后,在JVM中产生一个private的age,然后又有set/get方法。
+•这样scala声明的age默认是public的,set/get也是public的
+•而如果private var age = 0,则set/get也是private的
+•3.scala中set/get方法被调用age和age_=即可
+•println(red.age) 相当于get
+•fred.age=21  相当于set,调用fred._age=21
+•
+•4.我们可以重新定义set/get方法
+•class Persion{
+• private var privateAge = 0 //私有的,并且初始化,重新命名
+•def age = privateAge
+•def age_ = (newValue:int){
+• if(newValue > privateAge) privateAge = newValue
+•}
+•}
+•我们重新定义了age的set/get方法,set方法定义只要最大的age
+•调用
+•var fred = new Person
+•freg.age = 30 调用age_方法,会成功修改该值
+•freg.age=21 因为21小于30,因此不会成功赋值
+•println(freg.age)  打印30
+•
+•5.scala为每一个属性都分配set/get方法,很多人会发出争议，因此有一些方式可以更改这些默认值:
+•a.如果属性是private的,那么set/get方法也是private的
+•b.如果属性是val的,则仅仅有get方法，没有set方法
+•c.如果不想任何属性有set/get方法,则给属性声明private [this]
+•三、仅仅有get的属性
+•1.如果有一个属性仅仅要get方法,不需要set方法,并且该值初始化后就不会被更改，应该使用val定义该属性。
+•class Message{
+• val timeStamp = new java.util.Date
+•}
+•2.有时候我们要一个属性不能set,只能get,但是他通过其他方法使属性可以被更改,比如increment方法更改了current属性值。而没有通过set更改current属性值。
+•因此我们不能用val定义属性,因为val定义的 其他方法也不能更改该值，解决方案:
+•class Counter{
+• private var value = 0 //定义私有属性,因此有private的set/get方法
+• def increment() { value +=1 }
+• def current = value
+•}
+•注意:
+•a.因为var是private的,因此虽然有get和/set,但是对外不可见,因此外面无法访问该属性。
+•b.因为get方法不能外界使用,因此创建了一个current的public方法让外界调用即可。
+•c.因为current没有()去定义,因此外界调用的时候 也不能使用(),即 var n = count.current()是有异常的,改成count.current
+•3.scala中不能有set,没有get的情况
+•
+•四、对象-私有 属性 Object-private field
+•1.scala和java一样,方法里面是可以访问这个class本身所有object的private field的。
+•例如
+•class Counter{
+•  private var value = 0
+•  def increment() { value += 1 }
+•  def isLess(other : Counter) = value < other.value //可能访问other对象的private field
+•}
+•因为other也是count对象,所以isLess方法可以合法的访问的
+•2.scala可以允许更多的严格限制,使用private[this]限定词
+•private[this] var value = 0
+•这样count实例类能够访问该value field,其他的count实例访问不了。
+•这样的限制访问就被称为 object-private,即仅仅被该实例去私有使用,其他实例不会被使用的意思。
+•3.分析上面实现的原因
+•class-private field是scala产生private set/get方法,因此可以被class任意实例都可以使用private级别的field
+•object-private field是不产生set/get方法,所以只能自己的实例使用某一个field
+•4.private[ClassName]限制符
+•该限制符允许授权访问特殊的class
+•允许class的方法访问给定的field,
+•这个部分暂时比较麻烦,后续再学习,本章资料给的少。
+•
+•五、Bean Properties
+•1.前面章节我们看到了,scala为每一个field自动产生set/get方法,但是这个方法名字不是java bean需要的那种方法名字规则。
+•2.当给field使用@BeanProperty,该field会自动产生java的set/get的方法
+•import scala.reflect.BeanProperty
+•class Person{
+•  @BeanProperty var name:String = _
+•}
+•产生四个方法
+•a.name:String
+•b.name_(newValue:String):Unit
+•c.getName():String
+•d.setName(newValue:String):Unit
+•3.如果你在构造函数中定义的field,也想要javaBean中需要的set/get方法,则
+•class Person(@BeanProperty var name:String)
+•4.val/var name
+•自动产生public name/name_方法,当然name_方法只有var的时候才会被产生
+•被其他类可以调用
+•5.@BeanProperty val/var name
+•自动产生public name getName() name_=(var only) setName(..) (var only)
+•被其他类可以调用
+•6.private val/var name
+•自动产生private级别的name的set/get方法,只能被该类所有实例访问这些field
+•7.private[this] val/var name
+•不会产生任何set/get方法,因此只能一个class的实例才能被访问,其他实例不会被访问。
+•8.private[ClassName] var/val name
+•不太懂,日后再看看网上文章
+•六、辅助构造函数
+•1.java中可以有很多构造函数,但是scala只有一个构造函数,其他的辅助函数可以调用该主要的构造函数,因此可以class可以有很多辅助函数
+•2.eg
+•class Person{
+•  private var name = “”
+•  private var age = 0
+•  def this(name:String){//定义一个辅助函数
+•     this() //先调用主函数
+•     this.name = name
+•  }
+•  def this(name:String,age:Int){
+•   this(name)
+•   this.age = age
+•  }
+•}
+•调用
+•var p1 = new Person //调用主函数
+•var p2 = new Person(“field”)
+•var p3 = new Person(“field”,42)
+•
+•七、构造函数
+•1.构造函数中的属性会在创建构造函数的时候被赋值,并且自带set/get方法
+•2.会自动执行所有的语句块,因此会打印出println,也会执行配置加载,因此当初始化的时候,这种方式很有用
+•class Person(val name:String,val age:Int){
+•  println(“just construct another person”)
+•  private val prop = new Properties
+•  prop.load(new FileReader(“”))
+• def description = name + “ is ” + age + “ years old”
+•}
+•3.为参数实例化一个值
+•class Person(val name:String=“”,var age:Int = 0)
+•4.构造函数中field定义对属性的scope影响
+•a.name:String 属于object-private field.只能被该实例自己使用
+•b.private val/var name:String private field,private set/get方法
+•c.val/var name:String private field,public get/set方法
+•d.@BeanProperty var/val name:String,private field public scala/javaBean get/set方法
+•4.class Person private(val id:Int)
+•暂时不明吧
+•八、nested Class
+•1.scala,你可以嵌套任意你想嵌套的语法,你可以function里面嵌套function,class里面嵌套class
+•import scala.collection.mutable.ArrayBuffer
+•class NetWork{
+•  class Member(val name:String){
+•     val contacts = new ArrayBuffer[Member]
+•  }
+•
+•  private val member = new ArrayBuffer[Member]
+•  def join(name:String) = { //创建一个Member对象,返回该对象,并且追加到NetWork中
+•   val m = new Member(name)
+•   member+= m 
+•   m
+• }
+•}
+•NetWork表示社交网络,里面有很多成员Member,通过join方式加入到社交网络中。
+•每一个Member社交成员有一个contacts联系人列表,里面是该成员与谁有联系的意思
+•调用
+•val chatter = new NetWork
+•val myFace = new NetWork
+•每一个实例都拥有一个Member的class,chatter的Menber和myFace的Member是完全不同的两个class实例
+•2.内部类、外部类情况scala与java不同,如果创建内部类,则使用new chatter.Menber就可以了
+•java不是,java得使用特殊语法,chatter.new Member()
+•因此scala更符合标准理解的规则。
+•3.在我们社交网络例子中,可以添加成员到自己的社交网络里面,但两个社交网络互相联系是不允许的。
+•var fred = chatter.join(“fred”) //才chatter社交网络里面创建fred和wilma两个人
+•var wilma = chatter.join(“wilma”)
+•fred.contacts += wilma //让fred认识wilma这个人
+•
+•var barney = myFace.join(“barney”) //让myFace的社交网中添加一个用户
+•fred.contacts += barney  //这行是有问题的,因为fred属于chatter社交圈子的,不能添加myFace社交圈子的人。
+•
+•4.如果要实现上面的问题,让两个社交网络可以互通,
+•方式1,使用伴随对象
+•object NetWork{
+•   class Member(val name:String){
+•     val contacts = new ArrayBuffer(Member)
+•   }
+•}
+•
+•class NetWork{
+•   private val members = new ArrayBuffer[NetWork.Member]
+•}
+•方式2,使用发射类型,NetWork#Member,表示Member是属于任意NetWork的
+•class NetWork{
+•   class Member(var name:String){
+•      val contacts = new ArrayBuffer[NetWork#Member]
+•  }
+•}
+•5.this 含义
+•在嵌套的class中,可以使用this引用最近的class实例自己,这个类似java,如果你想要建立别名,也是可以的。
+•class NetWork(var name:String) { outer => //别名
+•   class Member(var name:String){
+•      def descry = name +” inside ” + outer.name
+•  }
+•}
+•a.outer=> 表示使用outer 与使用NetWork.this一样。
+•b.name名字在使用嵌套class的时候是有冲突的可能

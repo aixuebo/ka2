@@ -1,0 +1,164 @@
+1.第八节 不知道这节在讲什么呢,日后需要重新看一遍
+2.第十二节 13、14节  都要日后要详细看一遍
+ 
+  摘要
+   1.一个class可以extends 多个trait,目的是提供更高级的服务
+   2.一个trait被要求实现一个class,支持一些特性。
+   3.与java接口不同,scala的trait可以提供一些特性的实现,包括方法和field的实现
+   4.多个trait的执行顺序
+  一、为什么不要定义多个继承关系
+  1.scala与java一样,不允许一个class继承多个父类
+  2.当你组合的多个继承类没有公共的东西时候,是可以很好地被多个继承的,但是如果这些父类有多个公共的方法和field的话,就会存在问题。
+   例如一个助教，即是老师也是学生。
+   如果老师和学生类都有一个id属性,那么助教的id属性是谁的？这个是不明确的。
+   3.因此java的设计者很担心上面的问题发生,因此他设计的只允许继承一个class,实现多个接口,而接口只有定义方法,没有field和方法实现体，这样完全不会产生问题。
+   4.scala的trait相当于java的抽象类,那么他是如何解决冲突问题的呢？
+   二、trait与java接口的对比
+   1.子类必须实现该父类的接口,但是父类不需要写abstract关键词
+   trait Logger { 	def log(msg: String) // An abstract method 
+       } 
+     class ConsoleLogger extends Logger { // 使用extends,而不是implement
+  	 def log(msg: String) { println(msg) } // 没有override关键词
+     }
+   当覆盖trait的抽象方法的时候,不需要提供override关键词
+    2.我们看不到实现treait由任何关键词,因此在scala中,trait更像一个class,而不是接口
+    3.with用于支持多个trait
+     class ConsoleLogger extends Logger with Cloneable with Serializable      说明所有的java接口是可以被当trait使用的
+      三、trait是可以有具体实现类
+     1.定义一个有实现类的trait
+  	trait ConsoleLogger { 		def log(msg: String) { println(msg) } 
+	}	 	2.使用trait
+	class SavingsAccount extends Account with ConsoleLogger { 
+		def withdraw(amount: Double) { 
+			if (amount > balance) log("Insufficient funds") 
+			else balance -= amount 
+		} 
+	} 
+	这种将实现类追加到一个class钟,不是接口的实现,而是类的混入mix,即扩展类的功能,混入这个词语来源于冰淇淋店,为冰淇淋混入一些甜品等东西,使其更美味。
+    四、object with trait
+       1.trait没有任何实现
+	trait Logged { 		def log(msg: String) { } 
+	} 
+	class SavingsAccount extends Account with Logged { 
+		def withdraw(amount: Double)  { 
+			if (amount > balance) log("Insufficient funds") 
+		else 
+		} 
+	} 
+         我们会发现没有任何的信息被打印出来。这个看起来是毫无意义的trait。
+         2.让trait变得有意义
+	trait ConsoleLogger extends Logged { 		override def log(msg: String) { println(msg) } 
+	} 
+	3.val acct = new SavingsAccount with ConsoleLogger  这样就会有日志了,他会以最后一个trait提供的log为准,
+  	也就是说他会从后向前trait查找对应的方法。
+ 	4.这样你就可以实现各种log了,比如文件Log
+	val acct2 = new SavingsAccount with FileLogger 
+ 	五、layered trait
+	1.会从最后一个trait开始执行,这个是很有意义的
+ 	例子 我们想添加时间戳到日志文件中
+	trait TimestampLogger extends Logged { 
+		override def log(msg: String) { 
+			super.log(new java.util.Date() + " " + msg) 
+		} 
+	} 
+	我们想要阶段一些长日志
+	trait ShortLogger extends Logged { 		val maxLength = 15  
+		override def log(msg: String) { 
+			super.log(if (msg.length <= maxLength) msg else msg.substring(0, maxLength - 3) + "...") 
+	} } 
+	2.每一个方法里面调用了super.log方法,该方法会从最后一个trait开始调用,遇到super就调用上一个trait的log方法,直到没有super为止。
+	例如:
+	val acct1 = new SavingsAccount with ConsoleLogger with TimestampLogger with ShortLogger 
+	//结果Sun Feb 06 17:45:45 ICT 2011 Insufficient... 
+	val acct2 = new SavingsAccount with ConsoleLogger with ShortLogger with TimestampLogger 
+	//结果Sun Feb 06 1... 
+	3.super方法依赖于trait的顺序,因此使得程序更加的灵活了
+	4.如果需要控制要哪个trait执行,则super[ConsoleLogger].log(...) 
+	六、在trait中override 抽象方法
+	1.如果trait的方法是抽象未实现的
+	trait Logger { 		def log(msg: String) // 这个是一个抽象方法 
+	} 	一个类继承了该抽象trait
+	trait TimestampLogger extends Logger { 		override def log(msg: String) { // override 了一个抽象方法
+			super.log(new java.util.Date() + " " + msg) // Is super.log defined? 
+		}
+	}
+	会发现编译器有一个error,因为super的顺序取决于trait的顺序,因此不知道mix混入的顺序,是没办法知道super的
+	因此改正过来:
+	abstract override def log(msg: String) { 即可
+ 	七、trait中有抽象方法也有实现方法是很有用的
+	比如iterator,通过抽象的方法next和hasNext方法,子类实现了这两个抽象方法就可以了,是很方便的。
+        八、具体实现trait中的field
+	1.trait中field可以是抽象的,也可以是实现的,如果value被初始化了,则就是field被实现了。
+	trait ShortLogger extends Logged { 
+		val maxLength = 15 // 该field被实现了
+	 }
+	不知道这节在讲什么呢,日后需要重新看一遍
+	九、在trait中的抽象field
+	1.未初始化的field,就是抽象的field,子类必须override覆盖掉,子类具体实现
+	trait ShortLogger extends Logged { 
+		val maxLength: Int //一个抽象的属性 
+		override def log(msg: String) { 
+			super.log(if (msg.length <= maxLength) msg else msg.substring(0, maxLength - 3) + "...") 
+			//maxLength属性必须在子类去实现
+		}
+	}
+	子类
+	class SavingsAccount extends Account with ConsoleLogger with ShortLogger { 
+		val maxLength = 20 // No override necessary 
+	}
+ 	子类也可以这么实现:
+	val acct = new SavingsAccount with ConsoleLogger with ShortLogger { 
+		val maxLength = 20 
+	} 
+	十、trait的构造顺序
+	1.跟class一样,trait也可以有构造函数,包含初始化的field和body语句块,例如
+	trait FileLogger extends Logger { 		val out = new PrintWriter("app.log") //定义一个out对象 
+		out.println("# " + new Date().toString) //也打印一些信息 
+		def log(msg: String) { out.println(msg); out.flush() } 
+	} 
+	2.构造任何实现该trait的对象,都会执行以上的body代码块。
+	3.执行顺序
+	a.父类的构造器先被调用
+	b.父类的构造器执行后,class的构造器未执行前,先执行trait构造器
+	c.trait的构造顺序是从左到右
+	d.每一个trait,父类都是先被构造
+	e.如果多个trait公用同一个父类,并且该父类已经被加载完了,他不会再继续被构造了
+	f.所有的trait构造完成后,class被构造
+	4.例如
+	class SavingsAccount extends Account with FileLogger with ShortLogger 
+	先执行Account这个class
+	在执行Logger这个trait,因为他是FileLogger的父trait
+	在执行FileLogger,在执行ShortLogger,因为Logger已经被勾走完成了
+	最后构造SavingsAccount
+	十一、初始化trait的field
+	1.trait是不能有构造函数参数的,每一个trait只有一个无参数的构造函数
+	2.trait可以有所有class的特性,比如抽象和具体实现的field,有父类,但是就是在构造函数上有区别,只能有无参数的构造函数。
+	3.无构造参数的限制,就会有一个问题,没办法有自定义的设置,比如Logger这个trait,我们经常希望有一个File,用于存储日志,但是却没办法传入该file的路径,传到构造函数中。
+	4.有问题的解决方案
+	使用抽象field
+	trait FileLogger extends Logger { 		val filename: String //子类实现即可 		val out = new PrintStream(filename) 		def log(msg: String) { out.println(msg); out.flush() } 
+	} 	实际上这个是一个陷阱,这样的方式实际上是不会被工作的
+	val acct = new SavingsAccount with FileLogger { 
+		val filename = "myapp.log" // Does not work 
+	} 
+	原因是构造顺序产生的,因为先执行FileLogger,此时filename还没有被赋值,因此就会抛异常了,执行完trait后才会真正初始化filename变量呢。
+	5.一个不漂亮,但是可以解决这个问题的方案
+	val acct = new { // new之后更早的执行语法块
+		val filename = "myapp.log" 
+	} with SavingsAccount with FileLogger 
+	6.漂亮的解决方案,使用懒加载的方式,当真正使用该out对象的时候才会被加载,此时已经存在了该属性
+	trait FileLogger extends Logger { 
+		val filename: String 
+		lazy val out = new PrintStream(filename) 		def log(msg: String) { out.println(msg) } // No override needed 
+	}
+	十二、trait extend class
+	1.trait可以extend其他trait,同时也可以extend class
+	例如
+	trait LoggedException extends Exception with Logged { 
+		def log() { log(getMessage()) } 
+	}
+	日后要详细看一遍
+	十三、self type
+	1.日后看
+
+	十四、日后看 

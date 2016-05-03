@@ -1,0 +1,141 @@
+第三章 数组
+一、固定长度的数组
+1.val nums = new Array[Int](10) 
+长度为10,初始值为0的int数组
+2.val a = new Array[String](10) 
+长度为10,初始值为null的String数组
+3.val s = Array("Hello", "World") 
+长度为2,有内容的数组,数组类型是推测出来的
+注意该数组因为有初始化的过程,因此不需要new,而是执行apply方法
+4.s(0) = "Goodbye" 
+将s第0个元素替换成新的,返回// Array("Goodbye", "World") 
+注意访问元素使用(）代替[]
+
+二、可变长度的数组Array Buffer
+1.类似java的ArrayList会自动扩展和收缩数组。
+2.在scala中是ArrayBuffer
+import scala.collection.mutable.ArrayBuffer
+ val b = ArrayBuffer[Int]() 
+// Or new ArrayBuffer[Int]  因为没有固定长度,因此没有在参数中写入具体数字
+// An empty arraybuffer,ready to hold integers 初始化一个整数缓冲数组
+b += 1 
+// ArrayBuffer(1) 
+// Add an element at the end with += 追加一个元素
+ b += (1, 2, 3, 5) 
+// ArrayBuffer(1, 1, 2, 3, 5) 
+// Add multiple elements at the end by enclosing them in parentheses 追加多个元素
+ b ++= Array(8, 13, 21) 
+// ArrayBuffer(1, 1, 2, 3, 5, 8, 13, 21) 
+// You can append any collection with the ++= operator 使用++=追加任意集合
+b.trimEnd(5) 
+// ArrayBuffer(1, 1, 2) // Removes the last five elements 移除最后5个元素
+3.在后面追加和删除元素是有效率的,可以在常数时间内完成
+4.你也可以在任意地方进行删除和添加数据,但是这个是没有效率的，插入点之后的数据要进行移动。
+b.insert(2, 6) 在第二个位置插入6   // ArrayBuffer(1, 1, 6, 2) 
+b.insert(2, 7, 8, 9) 
+// ArrayBuffer(1, 1, 7, 8, 9, 6, 2)  在2位置上添加多个元素
+b.remove(2) 
+// ArrayBuffer(1, 1, 8, 9, 6, 2)  删除第二个位置元素
+b.remove(2, 3) 
+// ArrayBuffer(1, 1, 2) 从2位置开始删除,删除3个元素
+5.有时候需要一个array，但是不固定长度，因此使用ArrayBuffer,然后转换成Array
+b.toArray // Array(1, 1, 2) 
+6.同样可以将Array转换成ArrayBuffer
+a.toBuffer 
+三、循环Array和ArrayBuffer
+1.只要知道下标,就可以通过()方式返回下标对应的值
+2.循环就是循环下标即可。
+for (i <- 0 until a.length) 
+println(i + ": " + a(i)) 
+3.0 until 10  是RichInt 的until方法
+// Range(0, 1, 2, 3, 4, 5, 6, 7, 8, 9) 
+4.for (i <- range) 
+5.until两个参数的,表示两个计数进行一次输出,默认是1
+0 until (a.length, 2) // Range(0, 2, 4, ...) 
+6.倒序输出
+(0 until a.length).reverse  // Range(..., 2, 1, 0) 
+7.当不需要知道Array的索引时候,可以简写
+for (elem <- a) println(elem) 
+四、数组转换
+1.数组的转换是产生新的数组,不改变原来的对象
+val a = Array(2, 3, 5, 7, 11) val result = for (elem <- a) yield 2 * elem 
+// result is Array(4, 6, 10, 14, 22)
+循环a数组,产生新的数组,结果是原来的2倍。
+jield的结果取决于for循环的第一个参数的类型,因为第一个参数是Array,因此结果也是Array
+2.对for循环的元素进行条件过滤,产生新的集合,不会对原始集合进行改变
+for (elem <- a ifelem%2==0) yield 2 * elem 
+等同于以下两种方式
+a.filter(_ % 2 == 0).map(2 * _) 
+a filter { _ % 2 == 0 } map { 2 * _ } 
+很多有经验的开发人员都更愿意使用后者，而不愿意使用yield
+3.demo,想要移除所有数组的内容,但是仅仅不移除第一个负数,我们可以设置一个boolean变量解决这个问题
+var first = true 
+var n = a.length 
+var i = 0 while (i < n) { 
+if (a(i) >= 0) i += 1 
+else { 
+if (first) { first = false; i += 1 } 
+else { a.remove(i); n -= 1 } } 
+} 
+这个例子并不好,他是很没有效率的在数组中不断移动
+一个更高的方式是将第一个负数移动到前面
+var first = false val indexes = for (i <- 0 until a.length if first || a(i) >= 0) yield { //如果first是true 或者是正数，就进入循环,产生新的数组
+if (a(i) < 0) first = false; i 
+} 
+结果集中是下标,要删除的下标
+for (j <- 0 until indexes.length) a(j) = a(indexes(j)) a.trimEnd(a.length - indexes.length) 
+五、公共算法
+1.对Array ArrayBuffer进行sum方法、min、max方法
+Array(1, 7, 2, 9).sum   返回值19
+2.排序,产生新的结果,对原始数据结构不更改
+val b = ArrayBuffer(1, 7, 2, 9) 
+val bSorted = b.sorted(_ < _) 
+// b is unchanged; bSorted is ArrayBuffer(1, 2, 7, 9) 
+参数是比较函数
+val bDescending = b.sortWith(_ > _) // ArrayBuffer(9, 7, 2, 1) 
+3.可视化,相当于toSring方法
+a.mkString(" and ")   // "1 and 2 and 7 and 9" 
+a.mkString("<", ",", ">")  // "<1,2,7,9>" 
+
+六、讲解scala的doc文档
+1.ArrayOps  是Array内部的隐式转换类
+2.append(elms:A*) 表示追加一组元素
+3.appendAll(xs:TraversableOnce[A])参数表示任何集合,只要实现了TraversableOnce的trait类即可。
+4.count(p:(A)=>boolean) 表示参数p是一个函数,参数是数组的元素,返回值是boolean,记录返回true的个数
+5.def +=(elem:A):ArrayBuffer.this.type 表示参数是数组的元素类型的,返回值返回该ArrayBuffer本身,可以做chain链式追加元素
+6.copyToArray[B>:A](xs:Array[B]):Unit 
+  表示copy这个数组,元素是A的数组,到参数的元素是B的数组中,无返回值,因为参数是引用,因此引用中已经有了多余的数据了。
+其中B允许是A的super父类。
+例如 你可以copy ArrayBuffer[Int] 到 Array[Any]中
+7.max[B >:A ](implicit cop:Ordering[B] ):A 
+表示获取数组中最大的一个元素A
+  首先B是A的父类,原始数组是元素A类型,参数数组是B类型元素
+参数cop是实现了Orderig排序的类,可以针对B类型的进行排序,因此元素A是B的子类,而B实现了排序方法,因此就可以对元素A进行排序了,如果A中没有实现比较方法的时候,会隐式转换到父类B中进行比较
+8.padTo[B >:A,That ] (len:Int,elem:B) (implicit bf:CanBuildFrom[ArrayBuffre[A],B,That ] ) : That
+这个方法暂时没看懂,但是可以了解一下语法
+简单的
+padTo(len:int,ejem:B):That 
+剩下的都是约束,
+比如第一部分,约束B是A的父类,以及That的类型
+第二部分声明了一个隐式转换类,该类接收三个参数ArrayBuffer[A] B That  
+
+七、多维度Array数组
+1.Array[Array[Double]]  表示2维数组
+2.单独的语法创建多维度数组
+val matrix = Array.ofDim[Double](3, 4) // 三行四列矩阵数组
+matrix(row)(column) = 42  使用两个数组下标访问2维数组 3.创建一个不规则的数组，
+例如10行,每行列数不一致的数组
+val triangle = new Array[Array[Int]](10) 创建10行数组
+for (i <- 0 until triangle.length)  循环每一行
+triangle(i) = new Array[Int](i + 1)  为每一行设置一组数组
+八、java和scala之间的相互转换
+1.因为scala的数组就是java的array,因此可以相互转换
+2.当你要调用一个java方法,或者接收一个Java list参数 或者返回java list,你当然可以完全使用java的List在你的scala代码中，但是这个是不美丽的代码。
+代替的方法是导入scala.collection.JavaConversions ,该类是隐式转换类,你可以使用scala的ArrayBuffer在你的代码中,他们可以自动转换包装成java的List,当调用java的方法时候。
+例如:
+java.lang.ProcessBuilder 类有一个List<String>的构造函数,
+import scala.collection.JavaConversions.bufferAsJavaList 
+import scala.collection.mutable.ArrayBuffer val command = ArrayBuffer("ls", "-al", "/home/cay") val pb = new ProcessBuilder(command) // Scala to Java  scala自动转换成java
+3.当然java的方法返回的是List,也可以自动转换成scala的ArrayBuffer
+import scala.collection.JavaConversions.asScalaBuffer 
+import scala.collection.mutable.Buffer val cmd : Buffer[String] = pb.command() // Java 转换成 Scala 

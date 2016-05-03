@@ -1,0 +1,117 @@
+概述
+1.map是一个key-value的键值对
+2.scala有一个概念是tuple,聚合N个类型的对象,不要求每一个类型都相同。
+3.map就是简单的tuple=2时候的情况。
+4.tuple很有用在聚合多个value值得时候,可以让返回值有多个不同类型的返回值被返回。
+
+一、创建一个Map
+1.val scores = Map("Alice" -> 10, "Bob" -> 3, "Cindy" -> 8) 
+这个构建的是immutable Map[String, Int] ,他是不能被更改的。
+
+与下面的构造语句是一样的
+val scores = Map(("Alice", 10), ("Bob", 3), ("Cindy", 8)) 箭头的方式可能更比圆括号更表达方向性
+2.如果要想建立一个可变化的Map,则
+val scores = scala.collection.mutable.Map("Alice" -> 10, "Bob" -> 3, "Cindy" -> 8) 
+3.创建一个空的map
+val scores = new scala.collection.mutable.HashMap[String, Int] 
+
+4.var scores = Map("Alice" -> 10, "Bob" -> 3, "Cindy" -> 8) 
+虽然变量是var可变的,但是创建的map依然是不可变的map,与1不同的是，map肯定不允许更新和新增了,
+但是可以产生新的map,然后重新引用赋值给var变量。
+二、访问一个map
+1.在scala中,对比map和function他们是特别接近的,因为他们都使用()去获取值,而不像java使用get方式
+val bobsScore = scores("Bob") // Like scores.get("Bob") inJava 
+2.如果key不存在,则抛异常
+java.util.NoSuchElementException: key not found: Bob1
+3.map也有contains方法查看key是否存在
+val bobsScore = if (scores.contains("Bob")) scores("Bob") else 0 
+上面的有一些复杂,可以省略为
+val bobsScore = scores.getOrElse("Bob", 0) 
+4.map的get方法返回一个option对象,不存在的话则返回None
+scores.get("Bob1")
+res1: Option[Int] = None
+
+scores.get("Bob")
+res2: Option[Int] = Some(3)
+
+三、更新map
+
+1.在可变的map中是可以更新map的value的 或者添加一个key-value
+scores("Bob") = 10 更新操作
+scores("Fred") = 7 添加操作
+也可以使用+= 或者-=去增加多个键值对和减少多个键值对
+scores += ("Bob" -> 10, "Fred" -> 7) 
+scores -= "Alice" 
+2.不可变的map是不能被更新的,但是可以获取一个新的map,然后对其进行更新
+val newScores = scores + ("Bob" -> 10, "Fred" -> 7) // New map with update 
+3.使用var变量代替val
+var scores = ... scores = scores + ("Bob" -> 10, "Fred" -> 7) 
+scores = scores - "Alice" 
+这个实现逻辑也是产生新的对象,只是新的对象引用又赋值给var变量
+有人可能认为这种方式是无效的,在这个例子确实无效,但是可能新的和老得map已经被分享出去，被别人使用了,我们改结构对他们是有影响的,避免这样的麻烦。
+4.不可变map不能直接scores("Bob") = 10 更新操作,但是可以使用+=和-=方式产生新的map,新的map是否可变也跟原始map有关系.
+scores+("aa"->10,"bb"->11)
+res8: scala.collection.immutable.Map[String,Int] = Map(Bob -> 3, Alice -> 10, aa -> 10, bb -> 11, Cindy -> 8)
+可以看到产生变量为res8的对象,因此说明是产生新的对象了,并且依然是不可用的map
+如果map定义的是var,那么就可以对其进行重新赋值,指向新的引用了。这就是3的原理
+四、循环map
+1.for ((k, v) <- map) process k and v 2.产生新的map,结果与原始map是反转的
+for ((k, v) <- map) yield (v, k) 
+3.迭代key集合或者value集合
+scores.keySet 
+// A set such as Set("Bob", "Cindy", "Fred", "Alice”),该set是否是可变的,取决于map是否可变的 for (v <- scores.values) println(v) // Prints 10 8 7 10 or some permutation thereof ,打印所有的value值
+五、对map排序
+1.treemap
+val scores = scala.collection.immutable.SortedMap("Alice" -> 10, "Fred" -> 7, "Bob" -> 3, "Cindy" -> 8) 
+在scala2.9之前是不支持可变的tree map的,如果要使用的话,建议使用java的treeMap
+2.如果想按照插入的顺序排列,则
+val scores = scala.collection.immutable.SortedMap("Alice" -> 10, "Fred" -> 7, "Bob" -> 3, "Cindy" -> 8) 
+
+六、与java对象进行转换
+1.如果你调用java方法,返回了java的map对象,你想要转换成scala的map,可以很愉快的使用map的api。
+这个在想使用可变的tree map的时候尤其重要,因为scaka不支持这种tree map
+2.将scala的Map转换成java的TreeMsp
+import scala.collection.JavaConversions.mapAsScalaMap 
+val scores: scala.collection.mutable.Map[String, Int] = new java.util.TreeMap[String, Int] 
+3.如何将Properties转化成Map<String,String>对象
+import scala.collection.JavaConversions.propertiesAsScalaMap val props: scala.collection.Map[String, String] = System.getProperties() 
+4.将scala的map隐式转换成java的map
+import scala.collection.JavaConversions.mapAsJavaMap import java.awt.font.TextAttribute._ // Import keys for map below 
+val attrs = Map(FAMILY -> "Serif", SIZE -> 12) // A Scala map  创建scala的map
+val font = new java.awt.Font(attrs) // Expects a Java map 该方法期望的参数是java的map,而我们传进去的是scala的map
+
+七、Tuple
+1.map是最简单的tuple了,tuple就是不用类型的集合作为一个元素被返回
+(1, 3.14, "Fred")
+res9: (Int, Double, String) = (1,3.14,Fred)  //3元tuple,称之为Tuple3
+2.如何获取tuple中属性
+val t = (1, 3.14, "Fred") 
+val second = t._2 // Sets second to 3.14 
+注意:
+1.t._2 也可以写成t  _2
+2.下标从1开始计数,而不像数组和String的位置一样,从0开始计数。
+
+3.通常更喜欢用模式匹配的方式获取tuple数据
+val (first, second, third) = t // Sets first to 1, second to 3.14, third to "Fred" 
+如果不是三个元素都需要的话,可以用_代替不需要的
+val (first, second, _) = t 
+4.tuple对function的返回值是非常有用的,因为可以返回多个有意义的元素
+例如StringOps 的partition 的方法,返回String键值对,包含符合条件的、不符合条件的
+eg:"New York".partition(_.isUpper) // ("NY", "ew ork") 
+将大写字母的放在一起,小写的=字母的放在一起
+
+八、Zipping
+1.跟拉锁一样,组装两个集合,返回值还是该集合类型,只是元素类型是元祖
+val symbols = Array("<", "-", ">") 
+val counts = Array(2, 10, 2)
+ val pairs = symbols.zip(counts)
+返回值pairs: Array[(String, Int)] = Array((<,2), (-,10), (>,2))
+2.循环处理结果
+for ((s, n) <- pairs) Console.print(s * n) // Prints <<---------->> 
+3.可以将zip的结果转换成Map
+scala> pairs.toMap
+res13: scala.collection.immutable.Map[String,Int] = Map(< -> 2, - -> 10, > -> 2)
+
+如果有keys集合 和values集合,并且关系是一对一的,那么转换成map仅需一步:
+keys.zip(values).toMap 
+4.两个集合进行zip操作,仅与集合size最少的为准。

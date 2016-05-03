@@ -1,0 +1,149 @@
+第二节 source.buffered 和head方法
+第十一节
+
+   一、read line
+   1.从文件中读取所有行数据,调用getLines方法 他是scala.io.Source class
+    import scala.io.Source     val source = Source.fromFile("myfile.txt", "UTF-8")  //第一个参数是String或者java.io.File对象
+     val lineIterator = source.getLines 
+    这个结果是一个迭代器,for (l <- lineIterator) process l  这样去处理一行一行数据
+   2.也可以将结果存储在数组中,然后使用数组的迭代循环方法进行处理
+     val lines = source.getLines.toArray 
+   3.将文件内容转换成字符串
+    val contents = source.mkString 
+  4.要调用source对象的close方法  
+  二、读取字符
+     1.因为Source  class extends Iterator[Char],因此source实例对象,直接可以进行for循环,返回一个独立的char字符
+         for (c <- source) process c 
+   2.如果仅仅想要peek 撇一下字符,并不是去消费每一个字符,则使用buffered方法
+      val source = Source.fromFile("myfile.txt", "UTF-8") 
+          val iter = source.buffered           while (iter.hasNext) { 
+			if (iter.head is nice) 
+				process iter.next 
+			else   …
+		 } 
+	source.close() 
+    3.如果文件不是很长,你可以将文件内容读取到String中,然后处理该String
+       val contents = source.mkString 
+  三、读取token和数字
+   1.快速的按照空格拆分内容
+   	val tokens = source.mkString.split("\\s+") 
+   2.将内容转换成数字
+     val numbers = for (w <- tokens) yield w.toDouble  返回的是一个double类型数组
+       或者val numbers = for (w <- tokens) yield w.toDouble 
+      3.从控制台读取数字
+        val age = readInt()         然后控制台输入数字+回车，就会打印数据了
+        readDouble or readLong方法
+    四、从url或者其他资源读取数据
+    1.val source1 = Source.fromURL("http://horstmann.com", "UTF-8") 
+    val source2 = Source.fromString("Hello, World!")  从字符串开始读,常用于debug
+    val source3 = Source.stdin 从标准输入中读取数据
+   五、读取二进制文件
+    1.scala没有提供读取二进制的文件方法,你将会使用java类库读取。
+    例如
+    val file = new File(filename)     val in = new FileInputStream(file)     val bytes = new Array[Byte](file.length.toInt) in.read(bytes)     in.close() 
+    将文件的内容读取到数组中
+
+    六、写文件
+    1.scala没有支持写文件功能,得使用java的java.io.PrintWriter 
+     val out = new PrintWriter("numbers.txt") 
+	 for (i <- 1 to 100) 
+    		out.println(i) 
+ 	out.close() 
+  	2.什么api都是合法的,与java一样的,除了printf方法,当传递一个number类型的时候,编译器就会有异常,因此需要转换到AnyRef类型
+      out.printf("%6d %10.2f",quantity.asInstanceOf[AnyRef], price.asInstanceOf[AnyRef]) 
+    这种方式并不友好,我们应该使用String的format方法
+   	out.print("%6d %10.2f".format(quantity, price)) 
+   3.注意,控制台的printf方法不受这个影响,你可以正常使用
+      printf("%6d %10.2f", quantity, price) 
+   七、访问目录
+     1.访问一个目录下所有的file,可以使用递归的方式,也可以使用非官方的scala的一个class的方式
+     2.定义一个函数,递归一个目录
+     import java.io.File        def subdirs(dir: File): Iterator[File] = { 
+            val children = dir.listFiles.filter(_.isDirectory)  //过滤所有的子目录
+	children.toIterator ++ children.toIterator.flatMap(subdirs _)  //循环每一个目录,同时对没一个目录又递归查找子目录
+       } 
+      for (d <- subdirs(dir)) process d 可以访问目录d下所有的目录
+       3.如果是java 7 ,则使用java.nio.file.Files 类的walkFileTree 方法,这个类实现了FileVisitor 接口。
+       4.在scala中,我们更愿意使用function函数,而不是使用接口。
+       5.以下的隐式转换,提供了一个function为该接口
+       import java.nio.file._        implicit def makeFileVisitor(f: (Path) => Unit) = new SimpleFileVisitor[Path] { 
+       override def visitFile(p: Path, attrs: attribute.BasicFileAttributes) = { 
+		f(p) 
+		FileVisitResult.CONTINUE 
+	   } 
+      }
+      函数是传入一个Path参数的函数,无返回值
+    调用Files.walkFileTree(dir.toPath, (f: Path) => println(f)) 可以打印所有的子目录
+    八、序列化
+    1.java的序列化与scala对比
+	java版本:
+		public class Person implements java.io.Serializable { 
+			private static final long serialVersionUID = 42L; 
+		}
+	scala版本:
+ 	@SerialVersionUID(42L) class Person extends Serializable 
+	因为Serializable trait被定义在scala包下,因此不用导入
+            如果要使用默认的ID,则可以忽略SerialVersionUID这个annotation
+        2.scala的collection集合是支持序列化的,因此集合可以直接序列化
+         class Person extends Serializable { 		private val friends = new ArrayBuffer[Person] // OK—ArrayBuffer is serializable .. 
+	} 
+        3.序列化与反序列化
+          val fred = new Person(...)           import java.io._           val out = new ObjectOutputStream(new FileOutputStream("/tmp/test.obj")) 
+          out.writeObject(fred)
+          out.close() 
+           val in = new ObjectInputStream(new FileInputStream("/tmp/test.obj")) 
+           val savedFred = in.readObject().asInstanceOf[Person] 
+    九、进程控制
+    1.通常,程序使用shell脚本去完成进程任务的,shell很容易处理管道,一个文件的输出是另外文件的输入.
+       2.scala中scala.sys.process 包提供了有用的与shell程序的交互,你可以再scala中写shell
+        例如:
+	import sys.process._ 
+	"ls -al .." ! 
+             这相当于ls -al命令被执行,该结果打印到标准输出中。
+             该包包含了隐式转换,将String转换成ProcessBuilder 类.!号表示执行该ProcessBuilder 实例对象
+             !号执行后的结果,返回的是程序的退出状态,默认是0,表示程序运行成功,非0表示程序失败。
+          3.如果使用!!代替!,表示输出结果是String。你可以管道方式连接,一个输出就是另外的输入
+          4.管道 #! 表示管道操作  "ls -al .." #| "grep sec" ! 
+         5.输出重定向 #>
+           "ls -al .." #> new File("output.txt") ! 
+          6.输出追加日志 #>>
+           "ls -al .." #>> new File("output.txt") ! 
+          7.从一个输入源读数据 #<
+   	 "grep sec" #< new File("output.txt") ! 
+          8.从url读入数据  #<
+  	"grep Scala" #< new URL("http://horstmann.com/index.html") ! 
+          9.组合命令
+            p #&& q  如果p成功了,则执行q
+               p #|| q  如果p不成功,则执行q
+          10.简单的说,scala更好的流程控制shell,因此为什么不用scala谢脚本呢.
+		11.如果你在不同的目录下运行一个进程,或者需要不同的环境变量,因此在构建ProcessBuilder 对象的时候,使用Process object的apply方法,提供目录或者一组键值对的环境变量参数。
+		val p = Process(cmd, new File(dirName), ("LANG", "en_US"))
+		"echo 42" #| p ! 
+
+    十、正则表达式 
+	1.scala.util.matching.Regex 类表示正则表达式
+            2.Striing类的r方法 去构造一个Regex对象实例
+	  val numPattern = "[0-9]+".r
+	3.如果正则表达式包含双引号、\符号,则使用原生的正则表达式语法,””” ….  “””
+      val wsnumwsPattern = """\s+[0-9]+\s+""".r 
+	等同于// Abiteasiertoreadthan "\\s+[0-9]+\\s+".r 
+	4.findAllIn 方法返回所有匹配的迭代器对象,使用for循环可以处理
+	for (matchString <- numPattern.findAllIn("99 bottles, 98 bottles")) 
+		process matchString 
+	将迭代器转换成数组
+ 	val matches = numPattern.findAllIn("99 bottles, 98 bottles").toArray  // Array(99, 98) 
+	5.String中第一个符合的,使用findFirstIn 返回Option[String] 
+	val m1 = wsnumwsPattern.findFirstIn("99 bottles, 98 bottles")  // Some(" 98 ") 
+	6.检查是否找到了以什么开头的匹配
+       	numPattern.findPrefixOf("99 bottles, 98 bottles") // Some(99) 
+	wsnumwsPattern.findPrefixOf("99 bottles, 98 bottles") // None 
+ 	7.替换第一个匹配的 或者全部替换
+ 	numPattern.replaceFirstIn("99 bottles, 98 bottles", "XX") // "XX bottles, 98 bottles" 
+	numPattern.replaceAllIn("99 bottles, 98 bottles", "XX") // "XX bottles, XX bottles" 
+	十一、正则表达式组
+	Groups are useful to get subexpressions of regular expressions. Add parentheses around the subexpressions that you want to extract, for example: 
+val numitemPattern = "([0-9]+) ([a-z]+)".r 
+To match the groups, use the regular expression object as an “extractor” 
+val numitemPattern(num, item) = "99 bottles" // Sets num to "99", item to "bottles" 
+If you want to extract groups from multiple matches, use a for statement like this: 
+for (numitemPattern(num, item) <- numitemPattern.findAllIn("99 bottles, 98 bottles")) process num and item 

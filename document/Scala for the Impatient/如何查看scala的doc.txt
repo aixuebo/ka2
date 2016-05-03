@@ -1,0 +1,21 @@
+Array相关的scala的Api doc文档说明
+1.ArrayOps  是Array内部的隐式转换类
+2.append(elms:A*) 表示追加一组元素
+3.appendAll(xs:TraversableOnce[A])参数表示任何集合,只要实现了TraversableOnce的trait类即可。
+4.count(p:(A)=>boolean) 表示参数p是一个函数,参数是数组的元素,返回值是boolean,记录返回true的个数
+5.def +=(elem:A):ArrayBuffer.this.type 表示参数是数组的元素类型的,返回值返回该ArrayBuffer本身,可以做chain链式追加元素
+6.copyToArray[B>:A](xs:Array[B]):Unit 
+  表示copy这个数组,元素是A的数组,到参数的元素是B的数组中,无返回值,因为参数是引用,因此引用中已经有了多余的数据了。
+其中B允许是A的super父类。
+例如 你可以copy ArrayBuffer[Int] 到 Array[Any]中
+7.max[B >:A ](implicit cop:Ordering[B] ):A 
+表示获取数组中最大的一个元素A
+  首先B是A的父类,原始数组是元素A类型,参数数组是B类型元素
+参数cop是实现了Orderig排序的类,可以针对B类型的进行排序,因此元素A是B的子类,而B实现了排序方法,因此就可以对元素A进行排序了,如果A中没有实现比较方法的时候,会隐式转换到父类B中进行比较
+8.padTo[B >:A,That ] (len:Int,elem:B) (implicit bf:CanBuildFrom[ArrayBuffre[A],B,That ] ) : That
+这个方法暂时没看懂,但是可以了解一下语法
+简单的
+padTo(len:int,ejem:B):That 
+剩下的都是约束,
+比如第一部分,约束B是A的父类,以及That的类型
+第二部分声明了一个隐式转换类,该类接收三个参数ArrayBuffer[A] B That

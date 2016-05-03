@@ -1,0 +1,84 @@
+摘要
+   1.当想要单例模式的时候,可以使用它
+   2.一个class可以拥有相同name的object伴随对象
+   3.object 可以 extend class或者trait
+   4.apply方法用在伴随对象的object中,用于静态方法构造一个class的实例对象
+   5.使用extend App trait的object,代替main函数
+   6.extend Enumeration  实现一个枚举类
+ 一、单例模式
+  1.scala没有静态方法和属性,object代表一个class的单利模式,即该class只会产生一个实例。
+
+   object Accounts {       private var lastNumber = 0      def newUniqueNumber() = { lastNumber += 1; lastNumber } 
+   }
+    使用Accounts.newUniqueNumber().方法,可以在应用中产生唯一的编号
+  2.objecy有所有class所拥有的特效,甚至可以extend 其他class 或者trait,但是有一个特例,不支持提供构造参数
+  3.定义object的意义
+  a.定义常量类以及公共function函数
+  b.不可变的单利容易被分享share更有效
+  二、伴随对象
+  1.在java中,一个class既可以有实例后的方法,也可以有静态方法,在scala中可以通过与class相同name的object完成静态方法,因此称之为伴随对象。
+  2.一个class和他的伴随对象,可以访问彼此的private特性,但是必须在同一个原文件中。
+  三、object extend a class or trait
+  1.一个object可以继承一个class,多个trait
+  四、apply方法
+  1.apply方法在object中定义
+   因为Apply这个object 定义了apply方法,因此可以通过表达式创建了Array对象
+   例如Array("Mary", "had", "a", "little", "lamb") 
+  2.使用apply方法创建一个class,可以省去了new关键词
+  3.容易混淆的地方
+   Array(100) 是通过调用apply(100)实现的,返回Array[Int],里面有一个整数元素,元素就是100
+    new Array(100). 是调用this(100).结果是Array[Nothing],创建了100个null元素在数组中
+  4.例子
+   class Account private (val id: Int, initialBalance: Double) { 
+      private var balance = initialBalance    } 
+  object Account { 
+   def apply(initialBalance: Double) = 
+            new Account(newUniqueNumber(), initialBalance) 
+  }  
+ 调用
+val acct = Account(1000.0) 
+ 五、object方式创建main项目的入口
+  1.demo
+object Hello {    def main(args: Array[String]) { 
+    println("Hello, World!") 
+  } 
+} 
+或者
+object Hello extends App { 
+   if (args.length > 0)  //自带args参数
+       println("Hello, " + args(0)) 
+   else 
+       println("Hello, World!") 
+  } 
+六、枚举类
+1.java和c++是有枚举类的,scala不支持枚举类,然后标准类库提供了Enumeration 的帮助类,你能够使用它产生一个枚举类。
+2.定义一个object,extends Enumeration ,初始化每一个value值 最后= value就可以了。
+object TrafficLightColor extends Enumeration { 
+   val Red, Yellow, Green = Value 
+} 
+val Red = Value 
+val Yellow = Value
+val Green = Value
+每一个调用value的方法,都会产生一个新的class内部类的实例,每一个实例都是Value 
+3.value可以被传递id和name或者两者任意一个作为参数,例如
+val Red = Value(0, "Stop") val Yellow = Value(10) // Name "Yellow" 
+val Green = Value("Go") // ID11 
+默认的话也是每一个value都有id和name属性,标示枚举类是哪个类
+4.调用
+TrafficLightColor.Red, 
+TrafficLightColor.Yellow 
+或者简单的方式
+import TrafficLightColor._ 
+5.
+object TrafficLightColor extends Enumeration { 
+type TrafficLightColor = Value 
+val Red, Yellow, Green = Value
+ } 
+
+import TrafficLightColor._ def doWhat(color: TrafficLightColor) = { 
+if (color == Red) "stop" else if (color == Yellow) "hurry up" 
+  else "go" 
+} 
+6.如果要访问value的id,则直接使用id方法即可,如果要访问name,则调用toString方法
+7.调用TrafficLightColor.values 产生一个set集合,包含所有的values
+for (c <- TrafficLightColor.values) println(c.id + ": " + c)
