@@ -1,0 +1,50 @@
+
+一、Downloading Spark
+1.下载和在单独的节点上运行spark的本地模式
+2.spark可以使用java scala python
+3.spark运行环境
+	a.java6以上
+	b.下载TAR 文件 spark-1.2.0-bin-hadoop2.4.tgz.
+	c.不需要有hadoop,但是如果存在hadoop集群,或者HDFS的话,下载匹配的版本
+	d.解压缩下载的压缩包
+		tar -xf spark-1.2.0-bin-hadoop2.4.tgz
+		cd spark-1.2.0-bin-hadoop2.4
+4.spark目录说明
+	a.README.md
+	b.bin
+	c.core, streaming, python, … 主要组件的源代码
+5.我们可以写demo,编译,运行spark job
+6.spark可以运行多种模式,比如local模式,在本地单台节点上运行spark
+7.spark能够运行多中调度器,比如Mesos, YARN, or the Standalone,我们再第七章介绍各种部署
+
+二、介绍spark的python和scala的shell
+1.spark有交互式shell,与R、scala、python相似。
+2.让你操作数据使用在单节点上的磁盘和内存
+3.spark shell可以允许你操作数据在多个机器上的磁盘和内存上的数据。spark可以自动部署这些运行
+4.因为spark可以在工作节点将数据加载到内存中,分布式多台机器计算,甚至1T的数据可以在多台机器上被处理,能够几分钟内处理完。
+5.shell可以连接集群,因此使用交互式shell是学习的最好方式
+6.打开shell
+bin/pyspark 打开python,
+bin/spark-shell 打开scala
+7.我们可以看到shell内的日志很多,我们可以控制他的输出,在conf目录下,创建log4j.properties,将级别INFO改成WARN即可
+8.在spark中,我们表达我们的计算,是通过操作分布式集合,它可以自动的并行访问集群,这个集合就是RDD
+9.我们使用本地文件,做一个简单的分析
+scala> val lines = sc.textFile("README.md") // Create an RDD called lines
+lines: spark.RDD[String] = MappedRDD[...]
+scala> lines.count() // Count the number of items in this RDD
+res0: Long = 127
+scala> lines.first() // First item in this RDD, i.e. first line of README.md
+res1: String = # Apache Spark
+
+我们可以再spark的ui,http://[ipaddress]:4040/jobs/,可以看到task和集群的所有信息
+
+
+
+In Examples 2-1 and 2-2, the variable called lines is an RDD, created here from a
+text file on our local machine. We can run various parallel operations on the RDD,
+such as counting the number of elements in the dataset (here, lines of text in the file)
+or printing the first one. We will discuss RDDs in great depth in later chapters, but
+before we go any further, let’s take a moment now to introduce basic Spark concepts.
+
+三、介绍spark core核心概念
+1.

@@ -1,0 +1,27 @@
+一、如果ifconfig不可用,可能是没有加入环境变量
+/sbin/ifconfig
+二、如何知道外网IP
+curl members.3322.org/dyndns/getip  返回值就是外网ip
+三、如何获取进程
+/proc
+四、如何获取用户和组
+/etc/passwd
+/etc/group
+五、系统信息
+1.uname -a
+Linux data-test01 2.6.32-358.el6.x86_64 #1 SMP Fri Feb 22 00:31:26 UTC 2013 x86_64 x86_64 x86_64 GNU/Linux
+2.cat /proc/version
+Linux version 2.6.32-358.el6.x86_64 (mockbuild@c6b8.bsys.dev.centos.org) (gcc version 4.4.7 20120313 (Red Hat 4.4.7-3) (GCC) ) #1 SMP Fri Feb 22 00:31:26 UTC 2013
+3.cat /etc/issue
+CentOS release 6.4 (Final)
+Kernel \r on an \m
+4.lsb_release -a
+LSB Version:    :base-4.0-amd64:base-4.0-noarch:core-4.0-amd64:core-4.0-noarch:graphics-4.0-amd64:graphics-4.0-noarch:printing-4.0-amd64:printing-4.0-noarch
+Distributor ID: CentOS
+Description:    CentOS release 6.4 (Final)
+Release:        6.4
+Codename:       Final
+6.cat /proc/cpuinfo |grep "processor"|sort -u|wc -l 计算cpu个数
+7.cat /proc/meminfo 查看内存情况
+六、
+
