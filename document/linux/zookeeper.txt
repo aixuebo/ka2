@@ -1,0 +1,4 @@
+zkCli.sh -server localhost:2181
+ls /
+get /
+
