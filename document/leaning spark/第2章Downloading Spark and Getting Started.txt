@@ -1,50 +1,167 @@
 
-һ��Downloading Spark
-1.���غ��ڵ����Ľڵ�������spark�ı���ģʽ
-2.spark����ʹ��java scala python
-3.spark���л���
-	a.java6����
-	b.����TAR �ļ� spark-1.2.0-bin-hadoop2.4.tgz.
-	c.����Ҫ��hadoop,�����������hadoop��Ⱥ,����HDFS�Ļ�,����ƥ��İ汾
-	d.��ѹ�����ص�ѹ����
+一、Downloading Spark
+1.下载和在单独的节点上运行spark的本地模式
+2.spark可以使用java scala python
+3.spark运行环境
+	a.java6以上
+	b.下载TAR 文件 spark-1.2.0-bin-hadoop2.4.tgz.
+	c.不需要有hadoop,但是如果存在hadoop集群,或者HDFS的话,下载匹配的版本
+	d.解压缩下载的压缩包
 		tar -xf spark-1.2.0-bin-hadoop2.4.tgz
 		cd spark-1.2.0-bin-hadoop2.4
-4.sparkĿ¼˵��
+4.spark目录说明
 	a.README.md
 	b.bin
-	c.core, streaming, python, �� ��Ҫ�����Դ����
-5.���ǿ���дdemo,����,����spark job
-6.spark�������ж���ģʽ,����localģʽ,�ڱ��ص�̨�ڵ�������spark
-7.spark�ܹ����ж��е�����,����Mesos, YARN, or the Standalone,�����ٵ����½��ܸ��ֲ���
+	c.core, streaming, python, … 主要组件的源代码
+5.我们可以写demo,编译,运行spark job
+6.spark可以运行多种模式,比如local模式,在本地单台节点上运行spark
+7.spark能够运行多中调度器,比如Mesos, YARN, or the Standalone,我们再第七章介绍各种部署
 
-��������spark��python��scala��shell
-1.spark�н���ʽshell,��R��scala��python���ơ�
-2.�����������ʹ���ڵ��ڵ��ϵĴ��̺��ڴ�
-3.spark shell������������������ڶ�������ϵĴ��̺��ڴ��ϵ����ݡ�spark�����Զ�������Щ����
-4.��Ϊspark�����ڹ����ڵ㽫���ݼ��ص��ڴ���,�ֲ�ʽ��̨��������,����1T�����ݿ����ڶ�̨�����ϱ�����,�ܹ��������ڴ����ꡣ
-5.shell�������Ӽ�Ⱥ,���ʹ�ý���ʽshell��ѧϰ����÷�ʽ
-6.��shell
-bin/pyspark ��python,
-bin/spark-shell ��scala
-7.���ǿ��Կ���shell�ڵ���־�ܶ�,���ǿ��Կ����������,��confĿ¼��,����log4j.properties,������INFO�ĳ�WARN����
-8.��spark��,���Ǳ������ǵļ���,��ͨ�������ֲ�ʽ����,�������Զ��Ĳ��з��ʼ�Ⱥ,������Ͼ���RDD
-9.����ʹ�ñ����ļ�,��һ���򵥵ķ���
-scala> val lines = sc.textFile("README.md") // Create an RDD called lines
+二、介绍spark的python和scala的shell
+1.spark有交互式shell,与R、scala、python相似。
+2.让你操作数据使用在单节点上的磁盘和内存
+3.spark shell可以允许你操作数据在多个机器上的磁盘和内存上的数据。spark可以自动部署这些运行
+4.因为spark可以在工作节点将数据加载到内存中,分布式多台机器计算,甚至1T的数据可以在多台机器上被处理,能够几分钟内处理完。
+5.shell可以连接集群,因此使用交互式shell是学习的最好方式
+6.打开shell
+bin/pyspark 打开python,
+bin/spark-shell 打开scala
+
+连接spark集群
+bin/spark-shell --master spark://10.1.5.79:7077
+
+7.我们可以看到shell内的日志很多,我们可以控制他的输出,在conf目录下,创建log4j.properties,将级别INFO改成WARN即可
+8.在spark中,我们表达我们的计算,是通过操作分布式集合,它可以自动的并行访问集群,这个集合就是RDD
+9.我们使用本地文件,做一个简单的分析
+scala> val lines = sc.textFile("/tmp/test/spark/init/README.md") // Create an RDD called lines,查找hdfs://data-test01:8020/tmp/test/spark/init/README.md
+scala> val lines = sc.textFile("README.md") // Create an RDD called lines,查找hdfs://data-test01:8020/user/spark/README.md
 lines: spark.RDD[String] = MappedRDD[...]
 scala> lines.count() // Count the number of items in this RDD
 res0: Long = 127
 scala> lines.first() // First item in this RDD, i.e. first line of README.md
 res1: String = # Apache Spark
 
-���ǿ�����spark��ui,http://[ipaddress]:4040/jobs/,���Կ���task�ͼ�Ⱥ��������Ϣ
+我们从一个文件中产生了一个RDD,可以运行各种各样得并发操作在该RDD上,比如读取文件行数以及文件第一行内容。
+10.我们可以再spark的ui,http://[ipaddress]:4040/jobs/,可以看到task和集群的所有信息
 
 
+三、介绍spark core核心概念
+1.每一个spark的应用由driver程序组成,driver在集群上去开启各自并发操作.
+2.driver程序包含了main含塑化和定义的数据集RDD
+3.上面的例子的driver程序就是shell
+4.driver程序访问spark通过SparkContext对象连接集群的
+5.shell中SparkContext被自动创建后,别名是sc
+6.一旦有了SparkContext,就可以创建RDD
+7.driver程序可以管理许多个node节点,称之为executors
+  例如你可以在集群上使用count操作,不同的节点会计算该文件的一部分行数。
+8.架构图,可以看33页
+9.最后许多spark的api,是围绕传递function去在集群上操作的
+  例如我们在上面的例子中加入filter过滤
+scala> val lines = sc.textFile("/tmp/test/spark/init/README.md")
+scala> val pythonLines = lines.filter(line => line.contains("Python"))
+pythonLines: spark.RDD[String] = FilteredRDD[...]
+scala> pythonLines.first()
+res0: String = ## Interactive Python Shell
+10.传递function到spark中
+使用lambda或者 =>表达式
+spark会自动将function传入到executor节点,因此写代码在单独的driver程序中就可以自动的将代码运行在多个节点上了
 
-In Examples 2-1 and 2-2, the variable called lines is an RDD, created here from a
-text file on our local machine. We can run various parallel operations on the RDD,
-such as counting the number of elements in the dataset (here, lines of text in the file)
-or printing the first one. We will discuss RDDs in great depth in later chapters, but
-before we go any further, let��s take a moment now to introduce basic Spark concepts.
+四、Standalone Applications 
+即独立模式，自带完整的服务，可单独部署到一个集群中，无需依赖任何其他资源管理系统,类似map-reduce 1.0版本,自带各自队列，容错性等
+1.如何使用Standalone程序
+除了交互式shell运行spark之外,spark也可以支持连接到standalone Applications中,语言是java、scala、python都可以。
+2.首先需要初始化自己的SparkContext对象,
+3.然后使用的api与shell是一样的
+4.使用maven添加spark-core的依赖.写本书的时候最高版本是1.2.0
+groupId = org.apache.spark
+artifactId = spark-core_2.10
+version = 1.2.0
+5.python开发需要依赖spark-submit脚本提交代码
+  bin/spark-submit my_script.py
+五、初始化SparkContext
+1.创建SparkConf对象,包含所有的配置信息
+scala版本
+import org.apache.spark.SparkConf
+import org.apache.spark.SparkContext
+import org.apache.spark.SparkContext._
+val conf = new SparkConf().setMaster("local").setAppName("My App")
+val sc = new SparkContext(conf)
+java版本
+import org.apache.spark.SparkConf;
+import org.apache.spark.api.java.JavaSparkContext;
+SparkConf conf = new SparkConf().setMaster("local").setAppName("My App");
+JavaSparkContext sc = new JavaSparkContext(conf);
+2.注意事项
+a.集群url,如果是local,表示运行spark在本地机器上的一个线程运行,不连接集群。
+  否则要写入集群的url
+b.为app写入一个名字
+c.使用sc的stop方法或者System.exit(0)或者sys.exit()退出程序
 
-��������spark core���ĸ���
-1.
+六、Building 该 Standalone Applications程序
+1.使用sbt and Maven
+2.代码
+val conf = new SparkConf().setAppName("wordCount")
+val sc = new SparkContext(conf)
+val input = sc.textFile(inputFile)
+val words = input.flatMap(line => line.split(" "))//使用空格拆分任务单词
+// Transform into pairs and count.每一个单词转换成数量
+val counts = words.map(word => (word, 1)).reduceByKey{case (x, y) => x + y}
+// Save the word count back out to a text file, causing evaluation.
+counts.saveAsTextFile(outputFile) //保存到输出中
+3.sbt文件
+name := "learning-spark-mini-example"
+version := "0.0.1"
+scalaVersion := "2.10.4"
+libraryDependencies ++= Seq(
+ "org.apache.spark" %% "spark-core" % "1.2.0" % "provided"
+)
+4.maven文件
+<project>
+ <groupId>com.oreilly.learningsparkexamples.mini</groupId>
+ <artifactId>learning-spark-mini-example</artifactId>
+ <modelVersion>4.0.0</modelVersion>
+ <name>example</name>
+ <packaging>jar</packaging>
+ <version>0.0.1</version>
+ <dependencies>
+ <dependency>
+ <groupId>org.apache.spark</groupId>
+ <artifactId>spark-core_2.10</artifactId>
+ <version>1.2.0</version>
+ <scope>provided</scope>
+ </dependency>
+ </dependencies>
+ <properties>
+ <java.version>1.6</java.version>
+ </properties>
+ <build>
+ <pluginManagement>
+ <plugins>
+ <plugin> <groupId>org.apache.maven.plugins</groupId>
+ <artifactId>maven-compiler-plugin</artifactId>
+ <version>3.1</version>
+ <configuration>
+ <source>${java.version}</source>
+ <target>${java.version}</target>
+ </configuration> </plugin> </plugin>
+ </plugins>
+ </pluginManagement>
+ </build>
+</project>
+5.使用bin/spark-submit脚本提交任务
+scala的build和run
+sbt clean package
+
+运行参数:main的class、jar、输入、输出
+$SPARK_HOME/bin/spark-submit \
+ --class com.oreilly.learningsparkexamples.mini.scala.WordCount \
+ ./target/...(as above) \
+ ./README.md ./wordcounts
+
+maven版本的build和run
+mvn clean && mvn compile && mvn package
+运行参数:main的class、jar、输入、输出
+$SPARK_HOME/bin/spark-submit \
+ --class com.oreilly.learningsparkexamples.mini.java.WordCount \
+ ./target/learning-spark-mini-example-0.0.1.jar \
+ ./README.md ./wordcounts
