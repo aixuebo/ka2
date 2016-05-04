@@ -1,0 +1,37 @@
+
+摘要
+1.本章介绍spark核心的数据抽象RDD
+2.一个RDD是分布式元素集合
+3.创建RDD、转换RDD、对RDD进行计算,获取结果
+
+
+一、RDD Basics
+1.RDD是简单的、不可变的分布式对象集合
+2.每一个RDD可以被拆分到多个node上去计算
+3.用户创建RDD的两种方式
+	a.加载额外的数据集,例如SparkContext.textFile()通过文件生成RDD
+	b.使用driver程序创建list、set等集合作为RDD
+4.一旦有了RDD,就可以进行RDD的操作,两种类型操作:transformations and actions
+	a.Transformations是从前面的RDD中构建了新的RDD,例如filtering
+	b.Actions是计算RDD的结果,结果是返回给driver或者保存在额外的存储中,比如HDFS或者内存,
+	例如first(),就是返回RDD的第一个元素
+5.Transformations和actions在spark中计算RDD的方式不太,虽然你可以在任意时间去定义一个新的RDD,但是他们是懒加载的。
+  只用在第一次使用action的时候才会被加载。
+  这样会很优化,比如fitst方法,是读取文件后,并没有全部读取文件,而是读取到第一行后,程序就返回了。
+6.spark的RDD默认是每次重新计算的,每次执行action的时候,都会被重新计算一次。
+  因此你可以去重用RDD在多个action中,使用RDD.persist()方法即可。
+  我们可以让spark存储数据在多个地方,通过第一次计算后,将结果存储在内存中,分布在多台节点的内存中。
+  这样在未来的action中可以重新使用该结果。
+  也可能存储在磁盘上.当数据很大的时候要存储在磁盘上。
+7.例如
+pythonLines.persist
+pythonLines.count()
+pythonLines.first()
+8.总结
+a.创建RDD通过外部数据
+b.转换RDD成新的RDD,比如filter
+c.重新使用数据的话,要persist()
+d.启动action,比如count() and first(),去并行计算结果。
+
+二、创建RDD
+1.

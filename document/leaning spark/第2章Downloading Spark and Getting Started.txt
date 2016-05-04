@@ -1,3 +1,7 @@
+sbt如何打包
+如何写一个jar包的jar对象去通过spark-submit提交
+bin/spark-shell --master spark://10.1.5.79:7077 如何启动成功连接集群的shell
+
 
 一、Downloading Spark
 1.下载和在单独的节点上运行spark的本地模式
