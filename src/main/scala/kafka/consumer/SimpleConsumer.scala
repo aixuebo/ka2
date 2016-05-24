@@ -141,6 +141,7 @@ class SimpleConsumer(val host: String,//broker的host和端口
    * Version 0 of the request will commit offsets to Zookeeper and version 1 and above will commit offsets to Kafka.
    * @param request a [[kafka.api.OffsetCommitRequest]] object.
    * @return a [[kafka.api.OffsetCommitResponse]] object.
+
    */
   def commitOffsets(request: OffsetCommitRequest) = {
     // TODO: With KAFKA-1012, we have to first issue a ConsumerMetadataRequest and connect to the coordinator before
