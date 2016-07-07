@@ -32,7 +32,7 @@ class ByteBufferBackedInputStream(buffer:ByteBuffer) extends InputStream {
     }
   }
 
-  //读取buffer构造函数的内容,从off开始读取,读取len个长度,将结果存储到参数bytes中,返回真正读取了多少个字节
+  //读取buffer构造函数的内容,读取len个长度,将结果存储到参数bytes中,从off位置开始覆盖,返回真正读取了多少个字节
   override def read(bytes:Array[Byte], off:Int, len:Int):Int = {
     buffer.hasRemaining match {//buffer.hasRemaining = true表示有字节可以读取
       case true =>

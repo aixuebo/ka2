@@ -108,6 +108,7 @@ abstract class MessageSet extends Iterable[MessageAndOffset] {
   /**
    * Print this message set's contents. If the message set has more than 100 messages, just
    * print the first 100.
+   * 只是打印前100个元素
    */
   override def toString: String = {
     val builder = new StringBuilder()

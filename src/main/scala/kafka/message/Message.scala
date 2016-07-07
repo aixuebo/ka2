@@ -45,15 +45,16 @@ object Message {
   val AttributesOffset = MagicOffset + MagicLength//属性的开始位置 5
   val AttributesLength = 1//属性的长度
   val KeySizeOffset = AttributesOffset + AttributesLength//key的开始位置 6
-  val KeySizeLength = 4//key的长度
-  val KeyOffset = KeySizeOffset + KeySizeLength//value的开始位置 10
-  val ValueSizeLength = 4//value的长度
+  val KeySizeLength = 4//存储key的长度的字节大小,int类型
+  val KeyOffset = KeySizeOffset + KeySizeLength//key的开始位置 10
+  val ValueSizeLength = 4//存储value的长度的字节大小,int类型
   
   /** The amount of overhead bytes in a message */
   val MessageOverhead = KeyOffset + ValueSizeLength //14,表示真正message的信息的开始位置
   
   /**
    * The minimum valid size for the message header
+   * 最小的一个message也要有这些字符,因为这些字符是头文件的大小
    */
   val MinHeaderSize = CrcLength + MagicLength + AttributesLength + KeySizeLength + ValueSizeLength //14,表示每一个message信息包含着14个字节头文件
   
@@ -96,7 +97,7 @@ class Message(val buffer: ByteBuffer) {
   /**
    * A constructor to create a Message
    * @param bytes The payload of the message 装着message信息的字节数组
-   * @param compressionCodec The compression codec used on the contents of the message (if any)
+   * @param codec The compression codec used on the contents of the message (if any)
    * @param key The key of the message (null, if none) key对应的字节数组
    * @param payloadOffset The offset into the payload array used to extract payload 表示value需要从bytes字节数组的哪个位置开始获取 
    * @param payloadSize The size of the payload to use 表示value需要从bytes参数中获取的长度
@@ -104,7 +105,7 @@ class Message(val buffer: ByteBuffer) {
    */
   def this(bytes: Array[Byte], 
            key: Array[Byte],            
-           codec: CompressionCodec, 
+           codec: CompressionCodec,
            payloadOffset: Int, 
            payloadSize: Int) = {
     this(ByteBuffer.allocate(Message.CrcLength + 
@@ -142,7 +143,7 @@ class Message(val buffer: ByteBuffer) {
     buffer.putInt(size)//设置value的字节长度
     if(bytes != null)
       buffer.put(bytes, payloadOffset, size) //设置value的字节内容
-    buffer.rewind()//将buffer的position设置到0的位置,下面要在该位置写入校验和数据
+    buffer.rewind()//将buffer的position设置到0的位置,下面要在该位置写入校验和数据,因此设置到0的位置,用于从0开始计算校验和数据
     
     // now compute the checksum and fill it in 在校验和的位置写入校验和
     Utils.writeUnsignedInt(buffer, CrcOffset, computeChecksum)//进行校验和计算以及填写到校验和的位置
@@ -201,6 +202,7 @@ class Message(val buffer: ByteBuffer) {
   /**
    * The length of the key in bytes
    * key的字节长度
+   * 从存储key长度的位置读取int值,表示key的长度
    */
   def keySize: Int = buffer.getInt(Message.KeySizeOffset)
   

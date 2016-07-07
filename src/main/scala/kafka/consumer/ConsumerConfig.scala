@@ -178,7 +178,9 @@ class ConsumerConfig private (val props: VerifiableProperties) extends ZKConfig(
   /* what to do if an offset is out of range.
      smallest : automatically reset the offset to the smallest offset
      largest : automatically reset the offset to the largest offset
-     anything else: throw exception to the consumer */
+     anything else: throw exception to the consumer
+     消费者从topic的什么位置开始消费,从头还是消费最新的,默认是消费最新的
+     */
   val autoOffsetReset = props.getString("auto.offset.reset", AutoOffsetReset)
 
   /** throw a timeout exception to the consumer if no message is available for consumption after the specified interval */
