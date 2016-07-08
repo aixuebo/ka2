@@ -108,6 +108,7 @@ class BlockingChannel( val host: String,
     if(!connected)
       throw new ClosedChannelException()
 
+    //将request的字节内容,发送到服务器端
     val send = new BoundedByteBufferSend(request)
     send.writeCompletely(writeChannel)//阻塞写入,直到RequestOrResponse中数据都写入完成为止才能退出
   }
@@ -117,6 +118,7 @@ class BlockingChannel( val host: String,
     if(!connected)
       throw new ClosedChannelException()
 
+    //接受全部服务器端返回的内容
     val response = new BoundedByteBufferReceive()
     response.readCompletely(readChannel)
 

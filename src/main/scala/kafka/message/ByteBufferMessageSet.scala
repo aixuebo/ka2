@@ -49,7 +49,7 @@ object ByteBufferMessageSet {
       var offset = -1L
       try {
         /**
-       * 将message的信息写入到out输出流中,offset表示该message的排序
+       * 将message的信息写入到out压缩输出流中,offset表示该message的序号
        * 格式:
        * 8个字节的offset
        * 4个字节的message消息的字节长度
@@ -121,7 +121,7 @@ object ByteBufferMessageSet {
  * 构造函数中buffer是已经创建好了,可以容纳所有message集合的缓冲区
  */
 class ByteBufferMessageSet(val buffer: ByteBuffer) extends MessageSet with Logging {
-  private var shallowValidByteCount = -1
+  private var shallowValidByteCount = -1//计算浅遍历下,占用多少个字节
 
   //Consumers消费者使用该构造方法
   def this(compressionCodec: CompressionCodec, messages: Message*) {
@@ -140,13 +140,14 @@ class ByteBufferMessageSet(val buffer: ByteBuffer) extends MessageSet with Loggi
 
   def getBuffer = buffer //获取缓冲区
 
+  //计算浅遍历下,占用多少个字节
   private def shallowValidBytes: Int = {
     if(shallowValidByteCount < 0) {
       var bytes = 0
       val iter = this.internalIterator(true)
       while(iter.hasNext) {
-        val messageAndOffset = iter.next
-        bytes += MessageSet.entrySize(messageAndOffset.message)
+        val messageAndOffset = iter.next //每一个message对象
+        bytes += MessageSet.entrySize(messageAndOffset.message)//每一个message对象占用多少字节
       }
       this.shallowValidByteCount = bytes
     }
@@ -158,7 +159,7 @@ class ByteBufferMessageSet(val buffer: ByteBuffer) extends MessageSet with Loggi
    **/
   def writeTo(channel: GatheringByteChannel, offset: Long, size: Int): Int = {
     // Ignore offset and size from input. We just want to write the whole buffer to the channel.
-    buffer.mark()
+    buffer.mark() //将全部信息都写入到输出流中,只是记录一下现在buffer的位置,方便写入后,恢复原始位置
     var written = 0
     while(written < sizeInBytes)
       written += channel.write(buffer)
@@ -166,10 +167,10 @@ class ByteBufferMessageSet(val buffer: ByteBuffer) extends MessageSet with Loggi
     written
   }
 
-  /** default iterator that iterates over decompressed messages */
+  /** default iterator that iterates over decompressed messages 进行深度遍历*/
   override def iterator: Iterator[MessageAndOffset] = internalIterator()
 
-  /** iterator over compressed messages without decompressing */
+  /** iterator over compressed messages without decompressing 进行浅遍历*/
   def shallowIterator: Iterator[MessageAndOffset] = internalIterator(true)
 
   /** When flag isShallow is set to be true, we do a shallow iteration: just traverse the first level of messages. 
@@ -177,28 +178,28 @@ class ByteBufferMessageSet(val buffer: ByteBuffer) extends MessageSet with Loggi
    *  **/
   private def internalIterator(isShallow: Boolean = false): Iterator[MessageAndOffset] = {
     new IteratorTemplate[MessageAndOffset] {
-      var topIter = buffer.slice()
-      var innerIter: Iterator[MessageAndOffset] = null
+      var topIter = buffer.slice()//把有效的字节进行复制
+      var innerIter: Iterator[MessageAndOffset] = null//内部message进一步循环
 
       def innerDone():Boolean = (innerIter == null || !innerIter.hasNext)
 
       //真正执行遍历方法
       def makeNextOuter: MessageAndOffset = {
         // if there isn't at least an offset and size, we are done
-        if (topIter.remaining < 12)
+        if (topIter.remaining < 12) //小于12个字节,说明已经遍历结束了
           return allDone()
-        val offset = topIter.getLong()//该消息的偏移量
+        val offset = topIter.getLong()//该消息的序号
         val size = topIter.getInt()//该消息所占用字节长度
         if(size < Message.MinHeaderSize)//每一个message长度必须超过该值
           throw new InvalidMessageException("Message found with corrupt size (" + size + ")")
         
         // we have an incomplete message
         if(topIter.remaining < size)
-          return allDone()
+          return allDone()//说明不满足message信息长度,则已经遍历结束了
           
         // read the current message and check correctness
         val message = topIter.slice()//分片,产生一个新的buffer,与老buffer共用同一组底层buffer
-        message.limit(size)//设置limit
+        message.limit(size)//设置limit,主要操作整个该message的全部缓冲区
         topIter.position(topIter.position + size)//topIter跳过该数据
         val newMessage = new Message(message)//获取新的message信息
 
@@ -207,10 +208,10 @@ class ByteBufferMessageSet(val buffer: ByteBuffer) extends MessageSet with Loggi
         } else {//深度遍历
           newMessage.compressionCodec match {
             case NoCompressionCodec =>
-              innerIter = null
+              innerIter = null//没有内部遍历
               new MessageAndOffset(newMessage, offset)
             case _ =>
-              innerIter = ByteBufferMessageSet.decompress(newMessage).internalIterator()
+              innerIter = ByteBufferMessageSet.decompress(newMessage).internalIterator()//内部遍历
               if(!innerIter.hasNext)
                 innerIter = null
               makeNext()
@@ -219,12 +220,12 @@ class ByteBufferMessageSet(val buffer: ByteBuffer) extends MessageSet with Loggi
       }
 
       override def makeNext(): MessageAndOffset = {
-        if(isShallow){
+        if(isShallow){//浅遍历
           makeNextOuter
-        } else {
-          if(innerDone())
+        } else {//深度遍历
+          if(innerDone())//查看内部是否遍历完成,完成了,则进行下一个message解析
             makeNextOuter
-          else
+          else //内部没有遍历完成,则遍历内部即可
             innerIter.next
         }
       }
@@ -235,6 +236,7 @@ class ByteBufferMessageSet(val buffer: ByteBuffer) extends MessageSet with Loggi
   /**
    * Update the offsets for this message set. This method attempts to do an in-place conversion
    * if there is no compression, but otherwise recopies the messages
+   * 重新设置序号
    */
   private[kafka] def assignOffsets(offsetCounter: AtomicLong, codec: CompressionCodec): ByteBufferMessageSet = {
     if(codec == NoCompressionCodec) {
@@ -242,9 +244,9 @@ class ByteBufferMessageSet(val buffer: ByteBuffer) extends MessageSet with Loggi
       var position = 0
       buffer.mark()
       while(position < sizeInBytes - MessageSet.LogOverhead) {
-        buffer.position(position)
-        buffer.putLong(offsetCounter.getAndIncrement())
-        position += MessageSet.LogOverhead + buffer.getInt()
+        buffer.position(position)//设置序号的位置
+        buffer.putLong(offsetCounter.getAndIncrement())//计算序号
+        position += MessageSet.LogOverhead + buffer.getInt()//计算到下一个message的序号位置上
       }
       buffer.reset()
       this

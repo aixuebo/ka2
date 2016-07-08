@@ -30,13 +30,13 @@ private[network] trait Transmission extends Logging {
   
   def complete: Boolean//是否已经完成该传输
   
-  //期望是不完成,如果不完成则不抛异常
+  //期望是不完成,如果没完成则抛异常
   protected def expectIncomplete(): Unit = {
     if(complete)
       throw new KafkaException("This operation cannot be completed on a complete request.")
   }
 
-  //期望是完成,如果完成则不抛异常
+  //期望是完成,如果不完成则抛异常
   protected def expectComplete(): Unit = {
     if(!complete)
       throw new KafkaException("This operation cannot be completed on an incomplete request.")
@@ -46,7 +46,7 @@ private[network] trait Transmission extends Logging {
 
 /**
  * A transmission that is being received from a channel
- * 从渠道接收到一个传输任务
+ * 渠道接受到字节信息任务
  */
 trait Receive extends Transmission {
   
@@ -58,8 +58,8 @@ trait Receive extends Transmission {
   //接收数据,ReadableByteChannel 表示数据源,从ReadableByteChannel中读取数据,一般读取到指定的ByteBuffer中
   //阻塞读取,直到readChannel中的数据都读取完成之后才停止
   def readCompletely(channel: ReadableByteChannel): Int = {
-    var totalRead = 0
-    while(!complete) {
+    var totalRead = 0 //总共读取了多少字节数据
+    while(!complete) {//没有完成,则不断的从数据源中读取数据
       val read = readFrom(channel)//从channel中读取了多少个字节
       trace(read + " bytes read.")
       totalRead += read
@@ -81,7 +81,7 @@ trait Send extends Transmission {
   //向GatheringByteChannel中写入数据,返回写入多少个字节数据
   //注意:阻塞写入,直到RequestOrResponse中数据都写入完成为止才能推出
   def writeCompletely(channel: GatheringByteChannel): Int = {
-    var totalWritten = 0
+    var totalWritten = 0//返回一共写了多少条数据
     while(!complete) {//只要不完成,就一直去写下去
       val written = writeTo(channel)//向渠道中写入数据
       trace(written + " bytes written.")

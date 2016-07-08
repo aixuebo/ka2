@@ -23,7 +23,10 @@ import kafka.utils._
 import kafka.api.RequestOrResponse
 
 /**
- * 从buffer中数据发送到channel中
+ * 把buffer中的数据发送到channel中
+ * 有界限的buffer缓冲池
+ *
+ * 参数buffer 包含request的类型id和request的具体字节数组
  */
 @nonthreadsafe
 private[kafka] class BoundedByteBufferSend(val buffer: ByteBuffer) extends Send {

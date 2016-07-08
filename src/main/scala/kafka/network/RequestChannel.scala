@@ -32,9 +32,9 @@ import org.apache.log4j.Logger
  * request的请求队列,全局性质的,属于server端的对象
  */
 object RequestChannel extends Logging {
-  val AllDone = new Request(1, 2, getShutdownReceive(), 0)
+  val AllDone = new Request(1, 2, getShutdownReceive(), 0)//表示完成的请求
 
-  //返回一个空的生产者对象
+  //返回一个空的字节信息,恢复给客户端
   def getShutdownReceive() = {
     val emptyProducerRequest = new ProducerRequest(0, 0, "", 0, 0, collection.mutable.Map[TopicAndPartition, ByteBufferMessageSet]())
     val byteBuffer = ByteBuffer.allocate(emptyProducerRequest.sizeInBytes + 2)
@@ -45,7 +45,11 @@ object RequestChannel extends Logging {
   }
 
   /**
-   * buffer参数,包含了RequestKeys中类型以及该类型对应的所有字节信息
+   * @param processor 该请求是哪个线程触发的
+   * @param requestKey 客户端的socket信息
+   * @param buffer 客户端发送过来的字节数组
+   * @param startTimeMs 读取客户端输入流的时间
+   * @param remoteAddress 客户端ip
    */
   case class Request(processor: Int, requestKey: Any, private var buffer: ByteBuffer, startTimeMs: Long, remoteAddress: SocketAddress = new InetSocketAddress(0)) {
     @volatile var requestDequeueTimeMs = -1L//请求出队列时间
@@ -109,7 +113,7 @@ object RequestChannel extends Logging {
   
   /**
    * @param processor 表示该Request属于哪个处理器的Request
-   * @param Request 表示该回复是回复哪个Request的请求
+   * @param request 表示该回复是回复哪个Request的请求
    * @param responseSend 表示该response要发送给request哪些数据
    * @param responseAction 表示该response是否要发送给request数据
    */

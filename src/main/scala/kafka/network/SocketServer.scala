@@ -47,7 +47,7 @@ class SocketServer(val brokerId: Int,//该服务器节点标示,标示哪台服�
                    val recvBufferSize: Int,//该socket服务器接收信息的缓存,属于socket设置
                    val maxRequestSize: Int = Int.MaxValue,//表示接收的字节最多不允许超过该字节数,因为该类表示服务器,因此接收的数据即请求的数据不允许超过该值
                    val maxConnectionsPerIp: Int = Int.MaxValue,//默认的每一个ip能连接的最多连接次数
-                   val connectionsMaxIdleMs: Long,//单位是秒
+                   val connectionsMaxIdleMs: Long,//单位是秒,连接的最大闲置时间,超过该值,则连接要被关闭掉
                    val maxConnectionsPerIpOverrides: Map[String, Int] )//key是ip,value是该ip最多能连接的次数,该参数与 maxConnectionsPerIp参数联合使用
                    extends Logging with KafkaMetricsGroup {
   this.logIdent = "[Socket Server on Broker " + brokerId + "], "//表示是哪台节点上的服务端被启动了
@@ -117,7 +117,7 @@ class SocketServer(val brokerId: Int,//该服务器节点标示,标示哪台服�
  */
 private[kafka] abstract class AbstractServerThread(connectionQuotas: ConnectionQuotas) extends Runnable with Logging {
 
-  protected val selector = Selector.open();
+  protected val selector = Selector.open();//监听选择器
   private val startupLatch = new CountDownLatch(1)
   private val shutdownLatch = new CountDownLatch(1)
   private val alive = new AtomicBoolean(true)//是否活跃
@@ -219,15 +219,15 @@ private[kafka] class Acceptor(val host: String,
    * 在accept上接收注册
    */
   def run() {
-    serverChannel.register(selector, SelectionKey.OP_ACCEPT);
-    startupComplete()
+    serverChannel.register(selector, SelectionKey.OP_ACCEPT);//注册一个事件监听
+    startupComplete()//已经完成开启
     var currentProcessor = 0//需要第几个处理器去处理该请求
     while(isRunning) {
       val ready = selector.select(500)
-      if(ready > 0) {
+      if(ready > 0) {//说明有连接过来了
         val keys = selector.selectedKeys()
         val iter = keys.iterator()
-        while(iter.hasNext && isRunning) {
+        while(iter.hasNext && isRunning) {//循环每一个接收到的连接
           var key: SelectionKey = null
           try {
             key = iter.next
@@ -279,8 +279,8 @@ private[kafka] class Acceptor(val host: String,
    * 使processor处理器去处理本次接收的请求SelectionKey
    */
   def accept(key: SelectionKey, processor: Processor) {
-    val serverSocketChannel = key.channel().asInstanceOf[ServerSocketChannel]
-    val socketChannel = serverSocketChannel.accept()
+    val serverSocketChannel = key.channel().asInstanceOf[ServerSocketChannel]//找到请求过来的channel流
+    val socketChannel = serverSocketChannel.accept()//通过该流获取通讯的socket
     try {
       connectionQuotas.inc(socketChannel.socket().getInetAddress)//记录该ip向服务器建立了一个连接
       socketChannel.configureBlocking(false)
@@ -292,6 +292,7 @@ private[kafka] class Acceptor(val host: String,
                   socketChannel.socket.getSendBufferSize, sendBufferSize,
                   socketChannel.socket.getReceiveBufferSize, recvBufferSize))
 
+      //让处理器去处理这个请求
       processor.accept(socketChannel)
     } catch {
       case e: TooManyConnectionsException =>
@@ -305,7 +306,7 @@ private[kafka] class Acceptor(val host: String,
 /**
  * Thread that processes all requests from a single connection. There are N of these running in parallel
  * each of which has its own selectors
- * 处理线程池中的一个线程对象
+ * 该对象是一个线程对应一个该对象,该对象用于处理所有客户端过来的请求
  */
 private[kafka] class Processor(val id: Int,//该处理器的序号
                                val time: Time,
@@ -322,9 +323,9 @@ private[kafka] class Processor(val id: Int,//该处理器的序号
   private val newConnections = new ConcurrentLinkedQueue[SocketChannel]()
   private val connectionsMaxIdleNanos = connectionsMaxIdleMs * 1000 * 1000//将秒转化成微秒
   private var currentTimeNanos = SystemTime.nanoseconds//当前毫秒数
-  //记录每一个SelectionKey对应的最近的活跃日期
+  //记录每一个连接(SelectionKey)对应的最后的活跃日期
   private val lruConnections = new util.LinkedHashMap[SelectionKey, Long]
-  private var nextIdleCloseCheckTime = currentTimeNanos + connectionsMaxIdleNanos
+  private var nextIdleCloseCheckTime = currentTimeNanos + connectionsMaxIdleNanos//下一次闲置的客户端连接要过期被关闭掉的时间点
 
   override def run() {
     startupComplete()
@@ -334,7 +335,7 @@ private[kafka] class Processor(val id: Int,//该处理器的序号
       configureNewConnections()
       // register any new responses for writing 读取一个response去写数据
       processNewResponses()
-      val startSelectTime = SystemTime.nanoseconds
+      val startSelectTime = SystemTime.nanoseconds//开始选择时间
       val ready = selector.select(300)
       currentTimeNanos = SystemTime.nanoseconds
       val idleTime = currentTimeNanos - startSelectTime//空闲时间
@@ -345,11 +346,11 @@ private[kafka] class Processor(val id: Int,//该处理器的序号
       // time should be discounted by # threads.
       aggregateIdleMeter.mark(idleTime / totalProcessorThreads)
 
-      trace("Processor id " + id + " selection time = " + idleTime + " ns")
+      trace("Processor id " + id + " selection time = " + idleTime + " ns")//记录该线程选择等候时间
       //根据获取的请求类型,进行读取request数据、向request写入response信息、关闭request的链接
       if(ready > 0) {
         val keys = selector.selectedKeys()
-        val iter = keys.iterator()
+        val iter = keys.iterator()//循环每一个选择的key
         while(iter.hasNext && isRunning) {
           var key: SelectionKey = null
           try {
@@ -395,12 +396,12 @@ private[kafka] class Processor(val id: Int,//该处理器的序号
   }
 
   private def processNewResponses() {
-    var curr = requestChannel.receiveResponse(id)
+    var curr = requestChannel.receiveResponse(id)//从队列中接收一个response对象,即客户端有恢复的信息对象
     while(curr != null) {
       val key = curr.request.requestKey.asInstanceOf[SelectionKey]
       try {
         curr.responseAction match {
-          case RequestChannel.NoOpAction => {
+          case RequestChannel.NoOpAction => {//表示不需要恢复给客户端数据
             // There is no response to send to the client, we need to read more pipelined requests
             // that are sitting in the server's socket buffer
             curr.request.updateRequestMetrics
@@ -409,7 +410,7 @@ private[kafka] class Processor(val id: Int,//该处理器的序号
             key.attach(null)
           }
           case RequestChannel.SendAction => {
-            trace("Socket server received response to send, registering for write: " + curr)
+            trace("Socket server received response to send, registering for write: " + curr)//说明该socket需要将服务端的信息发送给客户端,注册写事件
             key.interestOps(SelectionKey.OP_WRITE)
             key.attach(curr)
           }
@@ -457,7 +458,7 @@ private[kafka] class Processor(val id: Int,//该处理器的序号
    * 进行读取request数据
    */
   def read(key: SelectionKey) {
-    lruConnections.put(key, currentTimeNanos)
+    lruConnections.put(key, currentTimeNanos)//更新该客户端连接什么时候有过最新操作时间
     val socketChannel = channelFor(key)//获取与该SelectionKey对应的SocketChannel客户端与服务器连接流
     var receive = key.attachment.asInstanceOf[Receive]//获取或者绑定一个接收数据的对象
     if(key.attachment == null) {
@@ -481,7 +482,7 @@ private[kafka] class Processor(val id: Int,//该处理器的序号
     } else {//说明有更多数据要被读,期待下次读取信息
       // more reading to be done
       trace("Did not finish reading, registering for read again on connection " + socketChannel.socket.getRemoteSocketAddress())
-      key.interestOps(SelectionKey.OP_READ)
+      key.interestOps(SelectionKey.OP_READ)//继续该监听请求的读信息
       wakeup()
     }
   }
@@ -496,14 +497,14 @@ private[kafka] class Processor(val id: Int,//该处理器的序号
     val responseSend = response.responseSend
     if(responseSend == null)
       throw new IllegalStateException("Registered for write interest but no response attached to key.")
-    val written = responseSend.writeTo(socketChannel)
+    val written = responseSend.writeTo(socketChannel)//向客户端写response数据
     trace(written + " bytes written to " + socketChannel.socket.getRemoteSocketAddress() + " using key " + key)
     if(responseSend.complete) {
       response.request.updateRequestMetrics()
       key.attach(null)
       trace("Finished writing, registering for read on connection " + socketChannel.socket.getRemoteSocketAddress())
-      key.interestOps(SelectionKey.OP_READ)
-    } else {
+      key.interestOps(SelectionKey.OP_READ)//写入完成后,改read模式
+    } else {//没有写完成,还要继续写
       trace("Did not finish writing, registering for write again on connection " + socketChannel.socket.getRemoteSocketAddress())
       key.interestOps(SelectionKey.OP_WRITE)
       wakeup()
@@ -515,18 +516,18 @@ private[kafka] class Processor(val id: Int,//该处理器的序号
 
   //关闭最老的一个连接
   private def maybeCloseOldestConnection {
-    if(currentTimeNanos > nextIdleCloseCheckTime) {
-      if(lruConnections.isEmpty) {
-        nextIdleCloseCheckTime = currentTimeNanos + connectionsMaxIdleNanos
+    if(currentTimeNanos > nextIdleCloseCheckTime) {//说明已经可能存在连接过期的事情了
+      if(lruConnections.isEmpty) {//没有要过期的连接
+        nextIdleCloseCheckTime = currentTimeNanos + connectionsMaxIdleNanos//重新更新下一个检查的时间点即可
       } else {
-        val oldestConnectionEntry = lruConnections.entrySet.iterator().next()
-        val connectionLastActiveTime = oldestConnectionEntry.getValue
-        nextIdleCloseCheckTime = connectionLastActiveTime + connectionsMaxIdleNanos
-        if(currentTimeNanos > nextIdleCloseCheckTime) {
-          val key: SelectionKey = oldestConnectionEntry.getKey
+        val oldestConnectionEntry = lruConnections.entrySet.iterator().next()//获取最长存活的连接对象
+        val connectionLastActiveTime = oldestConnectionEntry.getValue//获取当时的时间戳
+        nextIdleCloseCheckTime = connectionLastActiveTime + connectionsMaxIdleNanos//判断过期时间
+        if(currentTimeNanos > nextIdleCloseCheckTime) {//说明过期时间已经到了
+          val key: SelectionKey = oldestConnectionEntry.getKey//获取连接对象
           trace("About to close the idle connection from " + key.channel.asInstanceOf[SocketChannel].socket.getRemoteSocketAddress
             + " due to being idle for " + (currentTimeNanos - connectionLastActiveTime) / 1000 / 1000 + " millis")
-          close(key)
+          close(key)//关闭该连接
         }
       }
     }
@@ -536,7 +537,7 @@ private[kafka] class Processor(val id: Int,//该处理器的序号
 
 //链接的约束对象,用于约束一些信息,不符合要求的不允许连接
 /**
- * @param 默认每一个InetAddress最多能允许多少个连接
+ * @param defaultMax 默认每一个InetAddress最多能允许多少个连接
  * @param overrideQuotas key是InetAddress,value是该InetAddress对应能最多允许的链接数量
  */
 class ConnectionQuotas(val defaultMax: Int, overrideQuotas: Map[String, Int]) {

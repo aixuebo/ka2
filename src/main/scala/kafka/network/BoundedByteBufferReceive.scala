@@ -23,7 +23,7 @@ import kafka.utils._
 
 /**
  * Represents a communication between the client and server
- * 从channel中接收数据到contentBuffer中
+ * 从channel中接收数据数据到contentBuffer中
  * 
  * @param maxSize 表示接收的字节最多不允许超过该字节数
  */
@@ -60,7 +60,7 @@ private[kafka] class BoundedByteBufferReceive(val maxSize: Int) extends Receive 
     // have we allocated the request buffer yet?
     if(contentBuffer == null && !sizeBuffer.hasRemaining) {//如果contentBuffer没有被初始化,即第一次使用,并且已经接收到了需要多少个字节,则进行初始化contentBuffer
       sizeBuffer.rewind()//重置到0的位置,获取int值,表示接收的文件是多少个字节
-      val size = sizeBuffer.getInt()
+      val size = sizeBuffer.getInt()//表示body要有多少个字节去接收
       if(size <= 0)
         throw new InvalidRequestException("%d is not a valid request size.".format(size))
       if(size > maxSize)

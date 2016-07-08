@@ -22,7 +22,8 @@ import java.nio.channels._
 import kafka.utils._
 
 /**
- * 从buffer中数据发送到channel中
+ * 把buffer中的数据发送到channel中
+ * 无界限的buffer缓冲池
  */
 @nonthreadsafe
 private[kafka] class ByteBufferSend(val buffer: ByteBuffer) extends Send {
@@ -37,7 +38,7 @@ private[kafka] class ByteBufferSend(val buffer: ByteBuffer) extends Send {
   def writeTo(channel: GatheringByteChannel): Int = {
     expectIncomplete()//校验,保证尚未完成
     var written = 0
-    written += channel.write(buffer)
+    written += channel.write(buffer)//将buffer的内容写入到channel中
     if(!buffer.hasRemaining)//如果buffer中没有数据了,则说明发送完了,因此complete设置成true
       complete = true
     written
