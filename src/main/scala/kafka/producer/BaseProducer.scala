@@ -22,6 +22,7 @@ import java.util.Properties
 // A base producer used whenever we need to have options for both old and new producers;
 // this class will be removed once we fully rolled out 0.9
 trait BaseProducer {
+  //将key-value发送给某个topic,具体的partition是不需要生产者操心的
   def send(topic: String, key: Array[Byte], value: Array[Byte])
   def close()
 }

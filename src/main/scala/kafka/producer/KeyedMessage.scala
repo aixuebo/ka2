@@ -22,6 +22,7 @@ package kafka.producer
  * If a partition key is provided it will override the key for the purpose of partitioning but will not be stored.
  * 
  * 包含一组消息,包含key-value、topic以及partKey
+ * 因为生产者是不关注发送给哪个partition的,至于发送到哪个partiton上取决于key和partKey
  */
 case class KeyedMessage[K, V](val topic: String, val key: K, val partKey: Any, val message: V) {
   if(topic == null)
