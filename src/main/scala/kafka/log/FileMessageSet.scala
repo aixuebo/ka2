@@ -35,7 +35,7 @@ import kafka.metrics.{KafkaTimer, KafkaMetricsGroup}
  * @param channel the underlying file channel used 
  * @param start A lower bound on the absolute position in the file from which the message set begins
  * @param end The upper bound on the absolute position in the file at which the message set ends
- * @param isSlice Should the start and end parameters be used for slicing?
+ * @param isSlice Should the start and end parameters be used for slicing? true表示文件分片,有时候文件很大,可能就需要读取文件的一部分,只要提供start和end的偏移量位置即可,此时要设置该属性为true
  * 
  * 该类表示在文件中存储若干个message对象,即存储message对象集合的文件
  * 每一个topic-partion对应一个该文件
@@ -109,9 +109,9 @@ class FileMessageSet private[kafka](@volatile var file: File,
   /**
    * Search forward for the file position of the last offset that is greater than or equal to the target offset
    * and return its physical position. If no such offsets are found, return null.
-   * @param targetOffset The offset to search for.
-   * @param startingPosition The starting position in the file to begin searching from.
-   * 从startingPosition位置开始搜索查询,备注该startingPosition位置一定是一个message的头,即可以读取连续12个字节表示 该message在log中的偏移量和message在log中所占用字节
+   * @param targetOffset The offset to search for.找到要的message序号
+   * @param startingPosition The starting position in the file to begin searching from.从文件中哪个位置开始搜索,该位置一定是message的头开始位置
+   * 从startingPosition位置开始搜索查询,备注该startingPosition位置一定是一个message的头,即可以读取连续12个字节表示 该message在log中的序号和message在log中所占用字节
    * targetOffset 表示找到该log中第targetOffset个message为止
    * 返回OffsetPosition,该对象表示log日志中一个message信息
    */
@@ -126,11 +126,11 @@ class FileMessageSet private[kafka](@volatile var file: File,
         throw new IllegalStateException("Failed to read complete buffer for targetOffset %d startPosition %d in %s"
                                         .format(targetOffset, startingPosition, file.getAbsolutePath))
       buffer.rewind()
-      val offset = buffer.getLong()//读取该message在log中的偏移量
+      val offset = buffer.getLong()//读取该message在log中的序号
       if(offset >= targetOffset)//找到目标偏移量,即在log中第几个message信息
         return OffsetPosition(offset, position)
       val messageSize = buffer.getInt()//message在log中所占用字节
-      if(messageSize < Message.MessageOverhead)//message字节存储数量有问题
+      if(messageSize < Message.MessageOverhead)//message字节存储数量有问题,连message的头文件都不满足
         throw new IllegalStateException("Invalid message size: " + messageSize)
       position += MessageSet.LogOverhead + messageSize//进行一个message查询
     }
@@ -139,8 +139,8 @@ class FileMessageSet private[kafka](@volatile var file: File,
   
   /**
    * Write some of this set to the given channel.
-   * @param destChannel The channel to write to.
-   * @param writePosition The position in the message set to begin writing from.从哪个位置开始写
+   * @param destChannel The channel to write to.把channel文件的一部分内容写入到另外一个渠道destChannel中
+   * @param writePosition The position in the message set to begin writing from.从channle文件的哪个字节位置开始写
    * @param size The maximum number of bytes to write 最多写入多少个字节
    * @return The number of bytes actually written.真实的写入多少个字节
    * 将message信息集合中的信息写入到指定的channel中
@@ -176,8 +176,8 @@ class FileMessageSet private[kafka](@volatile var file: File,
    */
   def iterator(maxMessageSize: Int): Iterator[MessageAndOffset] = {
     new IteratorTemplate[MessageAndOffset] {
-      var location = start//初始化开始位置
-      val sizeOffsetBuffer = ByteBuffer.allocate(12)
+      var location = start//初始化开始位置,后续表示已经循环到哪个偏移量位置了
+      val sizeOffsetBuffer = ByteBuffer.allocate(12)//记录message头文件,即该message的序号和所占用字节大小
       
       override def makeNext(): MessageAndOffset = {
         if(location >= end)
@@ -185,14 +185,14 @@ class FileMessageSet private[kafka](@volatile var file: File,
           
         // read the size of the item
         sizeOffsetBuffer.rewind()
-        channel.read(sizeOffsetBuffer, location)
+        channel.read(sizeOffsetBuffer, location)//从location位置填充12个message头文件字节
         if(sizeOffsetBuffer.hasRemaining)//理论上一次性可以读取12个字节,代表该message的偏移量8个字节和该message的字节总数4个字节,但是读取完后依然有数据,说明有问题,表示全部读取完成,因此调用allDone方法
           return allDone()
         
         sizeOffsetBuffer.rewind()
-        val offset = sizeOffsetBuffer.getLong()//代表该message的偏移量8个字节
+        val offset = sizeOffsetBuffer.getLong()//代表该message的序号8个字节
         val size = sizeOffsetBuffer.getInt()//该message的字节总数4个字节
-        if(size < Message.MinHeaderSize)
+        if(size < Message.MinHeaderSize)//message最小的头文件字节数
           return allDone()//说明读取完了,已经没有数据了
         if(size > maxMessageSize)//超出限制,抛异常
           throw new InvalidMessageException("Message size exceeds the largest allowable message size (%d).".format(maxMessageSize))
@@ -222,7 +222,7 @@ class FileMessageSet private[kafka](@volatile var file: File,
    * 将messages全部内容写入到channel中
    */
   def append(messages: ByteBufferMessageSet) {
-    val written = messages.writeTo(channel, 0, messages.sizeInBytes)
+    val written = messages.writeTo(channel, 0, messages.sizeInBytes)//将message集合的信息写到channel中
     _size.getAndAdd(written)
   }
  

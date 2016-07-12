@@ -22,8 +22,8 @@ package kafka.log
  * in some log file of the beginning of the message set entry with the
  * given offset.
  * 参数
- * offset:表示在log中第几个message信息
- * position:表示在log中该offset位置的message第一个字节的在该logSegment中偏移量,从该位置可以读取该message信息
+ * offset:表示该message的序号
+ * position:表示在log中该offset位置的message第一个字节的在该logSegment中偏移量,从该位置可以读取该message信息,position位置的第一个字节信息是message12个字节的头文件,分别表示该message的序号和字节大小
  * 
  * 该对象表示log日志中一个message信息
  */

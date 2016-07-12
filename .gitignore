@@ -1,5 +1,4 @@
 /.settings
 /bin
-
 /.idea
-/src/main/*.iml
+*.iml
