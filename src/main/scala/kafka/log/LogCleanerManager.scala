@@ -36,11 +36,15 @@ private[log] case object LogCleaningPaused extends LogCleaningState//清理暂�
 
 /**
  *  Manage the state of each partition being cleaned.
- *  If a partition is to be cleaned, it enters the LogCleaningInProgress state.
+ *  管理每一个被清理的partition的状态
+ *  If a partition is to be cleaned, it enters the LogCleaningInProgress state.如果已经partition已经去清理了,则他的状态是清理中
  *  While a partition is being cleaned, it can be requested to be aborted and paused. Then the partition first enters
  *  the LogCleaningAborted state. Once the cleaning task is aborted, the partition enters the LogCleaningPaused state.
  *  While a partition is in the LogCleaningPaused state, it won't be scheduled for cleaning again, until cleaning is
  *  requested to be resumed.
+ *  如果一个partition已经是正在清理中了,则他依然能够接受请求去终止或者暂停清理,则此时partition要首先进入LogCleaningAborted终止状态,
+ *  一旦清理任务真的被终止了,则状态改成LogCleaningPaused暂停状态.
+ *  当partition在LogCleaningPaused状态的时候,我们不能被再次调度清理,除非清理请求恢复清理
  */
 private[log] class LogCleanerManager(val logDirs: Array[File], val logs: Pool[TopicAndPartition, Log]) extends Logging with KafkaMetricsGroup {
   
@@ -87,8 +91,8 @@ private[log] class LogCleanerManager(val logDirs: Array[File], val logs: Pool[To
     inLock(lock) {
       val lastClean = allCleanerCheckpoints() //读取清理到什么偏移量了
       //转换成LogToClean集合
-      val dirtyLogs = logs.filter(l => l._2.config.compact)          // skip any logs marked for delete rather than dedupe
-                          .filterNot(l => inProgress.contains(l._1)) // skip any logs already in-progress
+      val dirtyLogs = logs.filter(l => l._2.config.compact)          // skip any logs marked for delete rather than dedupe 找到prtition是compact的
+                          .filterNot(l => inProgress.contains(l._1)) // skip any logs already in-progress 过滤剩余没有在清理中的partition
                           .map(l => LogToClean(l._1, l._2,           // create a LogToClean instance for each
                                                lastClean.getOrElse(l._1, l._2.logSegments.head.baseOffset)))
                           .filter(l => l.totalBytes > 0)             // skip any empty logs 跳过空的日志

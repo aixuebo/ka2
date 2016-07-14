@@ -27,22 +27,22 @@ import kafka.common._
  * 配置属性信息
  */
 object Defaults {
-  val SegmentSize = 1024 * 1024
-  val SegmentMs = Long.MaxValue
+  val SegmentSize = 1024 * 1024//一个segment文件的文件最大大小
+  val SegmentMs = Long.MaxValue//一个LogSegment文件创建超过该时间,则不管日志是否满了,都创建一个新的日志文件
   val SegmentJitterMs = 0L
-  val FlushInterval = Long.MaxValue
+  val FlushInterval = Long.MaxValue//flush的间隔,未flush的message数量达到一定程度,就要进行flush操作
   val FlushMs = Long.MaxValue//topic-partition对应的LOG.scala文件flush到磁盘的时间间隔
   
   val RetentionSize = Long.MaxValue//该LOG文件所有的segment文件的字节大小之和,超过了该阀值则要删除一些segment文件
   val RetentionMs = Long.MaxValue//保留segment文件最长时间,即segment文件最后修改时间超过了该阀值,则将其删除
-  val MaxMessageSize = Int.MaxValue
+  val MaxMessageSize = Int.MaxValue//一个message最大字节长度
   val MaxIndexSize = 1024 * 1024//索引文件的最大字节数
   val IndexInterval = 4096//索引间隔,每隔多少个字节建立一次索引
   
-  val FileDeleteDelayMs = 60 * 1000L
+  val FileDeleteDelayMs = 60 * 1000L//线程池中的delay,延迟多久再去删除该文件
   val DeleteRetentionMs = 24 * 60 * 60 * 1000L
   val MinCleanableDirtyRatio = 0.5
-  val Compact = false
+  val Compact = false//true表示老的segments要被删除,false要用clean线程去删除文件
   val UncleanLeaderElectionEnable = true
   
   val MinInSyncReplicas = 1 //表示partition的最小同步数量,即达到该数量的备份数,就可以认为是成功备份了
@@ -57,32 +57,32 @@ object Defaults {
  * @param flushMs The amount of time the log can have dirty data before a flush is forced,topic-partition对应的LOG.scala文件flush到磁盘的时间间隔
  * @param retentionSize The approximate total number of bytes this log can use  该LOG文件所有的segment文件的字节大小之和,超过了该阀值则要删除一些segment文件
  * @param retentionMs The age approximate maximum age of the last segment that is retained 保留segment文件最长时间,即segment文件最后修改时间超过了该阀值,则将其删除
- * @param maxIndexSize The maximum size of an index file
- * @param indexInterval The approximate number of bytes between index entries
+ * @param maxIndexSize The maximum size of an index file 索引文件的最大字节数
+ * @param indexInterval The approximate number of bytes between index entries用于设置索引文件的间隔,多少间隔设置一个索引
  * @param fileDeleteDelayMs The time to wait before deleting a file from the filesystem
  * @param deleteRetentionMs The time to retain delete markers in the log. Only applicable for logs that are being compacted.
  * @param minCleanableRatio The ratio of bytes that are available for cleaning to the bytes already cleaned
- * @param compact Should old segments in this log be deleted or deduplicated?
+ * @param compact Should old segments in this log be deleted or deduplicated? true表示老的segments要被删除
  * @param uncleanLeaderElectionEnable Indicates whether unclean leader election is enabled; actually a controller-level property
  *                                    but included here for topic-specific configuration validation purposes
  * @param minInSyncReplicas If number of insync replicas drops below this number, we stop accepting writes with -1 (or all) required acks 
  *        表示partition的最小同步数量,即达到该数量的备份数,就可以认为是成功备份了
  *
  */
-case class LogConfig(val segmentSize: Int = Defaults.SegmentSize,
+case class LogConfig(val segmentSize: Int = Defaults.SegmentSize,//一个segment文件的文件最大大小
                      val segmentMs: Long = Defaults.SegmentMs,//一个LogSegment文件创建超过该时间,则不管日志是否满了,都创建一个新的日志文件
                      val segmentJitterMs: Long = Defaults.SegmentJitterMs,
                      val flushInterval: Long = Defaults.FlushInterval,//flush的间隔,未flush的message数量达到一定程度,就要进行flush操作
                      val flushMs: Long = Defaults.FlushMs,//log日志flush的时间间隔
-                     val retentionSize: Long = Defaults.RetentionSize,
+                     val retentionSize: Long = Defaults.RetentionSize,//该LOG文件所有的segment文件的字节大小之和,超过了该阀值则要删除一些segment文件
                      val retentionMs: Long = Defaults.RetentionMs,//log中segment日志保留的时间,这些时间内的是要保留的
-                     val maxMessageSize: Int = Defaults.MaxMessageSize,
-                     val maxIndexSize: Int = Defaults.MaxIndexSize,
+                     val maxMessageSize: Int = Defaults.MaxMessageSize,//一个message最大字节长度
+                     val maxIndexSize: Int = Defaults.MaxIndexSize,//索引文件的最大字节数
                      val indexInterval: Int = Defaults.IndexInterval,//用于设置索引文件的间隔,多少间隔设置一个索引
-                     val fileDeleteDelayMs: Long = Defaults.FileDeleteDelayMs,
+                     val fileDeleteDelayMs: Long = Defaults.FileDeleteDelayMs,//线程池中的delay,延迟多久再去删除该文件
                      val deleteRetentionMs: Long = Defaults.DeleteRetentionMs,
-                     val minCleanableRatio: Double = Defaults.MinCleanableDirtyRatio,
-                     val compact: Boolean = Defaults.Compact,
+                     val minCleanableRatio: Double = Defaults.MinCleanableDirtyRatio,//用于clean线程
+                     val compact: Boolean = Defaults.Compact,//true表示老的segments要被删除,false要用clean线程去删除文件
                      val uncleanLeaderElectionEnable: Boolean = Defaults.UncleanLeaderElectionEnable,
                      val minInSyncReplicas: Int = Defaults.MinInSyncReplicas) {
 
@@ -113,7 +113,7 @@ case class LogConfig(val segmentSize: Int = Defaults.SegmentSize,
     if (segmentJitterMs == 0) 0 else Utils.abs(scala.util.Random.nextInt()) % math.min(segmentJitterMs, segmentMs)
 }
 
-object LogConfig {
+object LogConfig {//分别代表配置文件的key,这些key对应的每一个上面的name,从配置文件中读取这些配置值
   val SegmentBytesProp = "segment.bytes"
   val SegmentMsProp = "segment.ms"
   val SegmentJitterMsProp = "segment.jitter.ms"
@@ -218,6 +218,7 @@ object LogConfig {
    * Check that MinInSyncReplicas is reasonable
    * Unfortunately, we can't validate its smaller than number of replicas
    * since we don't have this information here
+   * 校验该值必须是>1,并且必须有内容
    */
   private def validateMinInSyncReplicas(props: Properties) {
     val minIsr = props.getProperty(MinInSyncReplicasProp)

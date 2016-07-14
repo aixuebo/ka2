@@ -74,7 +74,9 @@ class LogCleaner(val config: CleanerConfig,
   /* for managing the state of partitions being cleaned. package-private to allow access in tests */
   private[log] val cleanerManager = new LogCleanerManager(logDirs, logs);
 
-  /* a throttle used to limit the I/O of all the cleaner threads to a user-specified maximum rate */
+  /* a throttle used to limit the I/O of all the cleaner threads to a user-specified maximum rate
+  * 一个阀门,控制所有的清理线程的IO,速度快了,就会睡眠一会
+  **/
   private val throttler = new Throttler(desiredRatePerSec = config.maxIoBytesPerSecond, 
                                         checkIntervalMs = 300, 
                                         throttleDown = true, 
@@ -267,7 +269,7 @@ class LogCleaner(val config: CleanerConfig,
  * This class holds the actual logic for cleaning a log
  * @param id An identifier used for logging
  * @param offsetMap The map used for deduplication
- * @param bufferSize The size of the buffers to use. Memory usage will be 2x this number as there is a read and write buffer.
+ * @param ioBufferSize The size of the buffers to use. Memory usage will be 2x this number as there is a read and write buffer. 最终应该是2倍,因为读和写分别使用一个缓冲区
  * @param throttler The throttler instance to use for limiting I/O rate.
  * @param time The time instance
  */
@@ -559,6 +561,7 @@ private[log] class Cleaner(val id: Int,
 
 /**
  * A simple struct for collecting stats about log cleaning
+ * 保持清理状态
  */
 private case class CleanerStats(time: Time = SystemTime) {
   var startTime, mapCompleteTime, endTime, bytesRead, bytesWritten, mapBytesRead, mapMessagesRead, messagesRead, messagesWritten = 0L
@@ -566,8 +569,8 @@ private case class CleanerStats(time: Time = SystemTime) {
   clear()
   
   def readMessage(size: Int) {
-    messagesRead += 1
-    bytesRead += size
+    messagesRead += 1//读取次数
+    bytesRead += size//读取字节数
   }
   
   def recopyMessage(size: Int) {
@@ -610,9 +613,9 @@ private case class CleanerStats(time: Time = SystemTime) {
  * Helper class for a log, its topic/partition, and the last clean position
  */
 private case class LogToClean(topicPartition: TopicAndPartition, log: Log, firstDirtyOffset: Long) extends Ordered[LogToClean] {
-  val cleanBytes = log.logSegments(-1, firstDirtyOffset-1).map(_.size).sum
-  val dirtyBytes = log.logSegments(firstDirtyOffset, math.max(firstDirtyOffset, log.activeSegment.baseOffset)).map(_.size).sum
-  val cleanableRatio = dirtyBytes / totalBytes.toDouble
-  def totalBytes = cleanBytes + dirtyBytes
-  override def compare(that: LogToClean): Int = math.signum(this.cleanableRatio - that.cleanableRatio).toInt
+  val cleanBytes = log.logSegments(-1, firstDirtyOffset-1).map(_.size).sum//查找比firstDirtyOffset序号还小的序号一共占用多少个segment日志字节大小,即要清理的字节大小
+  val dirtyBytes = log.logSegments(firstDirtyOffset, math.max(firstDirtyOffset, log.activeSegment.baseOffset)).map(_.size).sum//firstDirtyOffset之后的数据有多少字节
+  val cleanableRatio = dirtyBytes / totalBytes.toDouble//clean的比例
+  def totalBytes = cleanBytes + dirtyBytes//总字节
+  override def compare(that: LogToClean): Int = math.signum(this.cleanableRatio - that.cleanableRatio).toInt//按照比例排序
 }

@@ -121,22 +121,24 @@ class LogManager(val logDirs: Array[File],//目录集合,可以处理目录存�
   private def loadLogs(): Unit = {
     info("Loading logs.")
 
-    val threadPools = mutable.ArrayBuffer.empty[ExecutorService]
+    val threadPools = mutable.ArrayBuffer.empty[ExecutorService]//每一个目录对应一个线程池ExecutorService对象,多个目录,因此就是线程池数组
     val jobs = mutable.Map.empty[File, Seq[Future[_]]]
 
     for (dir <- this.logDirs) {
-      val pool = Executors.newFixedThreadPool(ioThreads)
+      val pool = Executors.newFixedThreadPool(ioThreads)//每一个目录都有多线程去处理,ioThreads就是每一个目录的线程数
       threadPools.append(pool)
 
+      //该日志指示了该broker服务器是clean shutdown的,即主动进行shutdow的,不需要还原恢复操作
       val cleanShutdownFile = new File(dir, Log.CleanShutdownFile)
 
-      if (cleanShutdownFile.exists) {
+      if (cleanShutdownFile.exists) {//说明该日志存在
         debug(
           "Found clean shutdown file. " +
           "Skipping recovery for all logs in data directory: " +
           dir.getAbsolutePath)
       } else {
         // log recovery itself is being performed by `Log` class during initialization
+        //设置broker的状态是从未clean shutdown的服务器进行还原恢复过程中
         brokerState.newState(RecoveringFromUncleanShutdown)
       }
 
@@ -278,20 +280,22 @@ class LogManager(val logDirs: Array[File],//目录集合,可以处理目录存�
 
   /**
    * Truncate the partition logs to the specified offsets and checkpoint the recovery point to this offset
+   * 将参数对应的topic-partition的日志进行截断
+   * @param partitionAndOffsets Partition logs that need to be truncated 需要被截断的topic-partition
    *
-   * @param partitionAndOffsets Partition logs that need to be truncated
+   * 截短,将大于参数序号的message都删除掉
    */
   def truncateTo(partitionAndOffsets: Map[TopicAndPartition, Long]) {
-    for ((topicAndPartition, truncateOffset) <- partitionAndOffsets) {
-      val log = logs.get(topicAndPartition)
+    for ((topicAndPartition, truncateOffset) <- partitionAndOffsets) {//循环参数的每一个topic-partition
+      val log = logs.get(topicAndPartition)//找到topic-partition对应的LOG对象
       // If the log does not exist, skip it
       if (log != null) {
-        //May need to abort and pause the cleaning of the log, and resume after truncation is done.
-        val needToStopCleaner: Boolean = (truncateOffset < log.activeSegment.baseOffset)
-        if (needToStopCleaner && cleaner != null)
+        //May need to abort and pause the cleaning of the log, and resume after truncation is done.如果用到了clean的话,则要先暂停操作
+        val needToStopCleaner: Boolean = (truncateOffset < log.activeSegment.baseOffset)//判断是否要截短
+        if (needToStopCleaner && cleaner != null)//先暂停
           cleaner.abortAndPauseCleaning(topicAndPartition)
         log.truncateTo(truncateOffset)
-        if (needToStopCleaner && cleaner != null)
+        if (needToStopCleaner && cleaner != null)//恢复暂停
           cleaner.resumeCleaning(topicAndPartition)
       }
     }
@@ -302,6 +306,7 @@ class LogManager(val logDirs: Array[File],//目录集合,可以处理目录存�
   /**
    *  Delete all data in a partition and start the log at the new offset
    *  @param newOffset The new offset to start the log with
+   * 删除所有的日志,创建一个新的日志,新的日志的开始序号是newOffset
    */
   def truncateFullyAndStartAt(topicAndPartition: TopicAndPartition, newOffset: Long) {
     val log = logs.get(topicAndPartition)
@@ -333,9 +338,16 @@ class LogManager(val logDirs: Array[File],//目录集合,可以处理目录存�
    * 向每一个目录更新一个recovery-point-offset-checkpoint文件,用于标示该目录下topic-partition同步到哪些offset了
    */
   private def checkpointLogsInDir(dir: File): Unit = {
-    val recoveryPoints = this.logsByDir.get(dir.toString)
+    val recoveryPoints = this.logsByDir.get(dir.toString)//返回该目录下目前有哪些topic-partition对应的Log对象,即Map<TopicPartition,Log>映射对象
     if (recoveryPoints.isDefined) {
       //每一个目录,对应一个recovery-point-offset-checkpoint文件,用于标示该目录下topic-partition同步到哪些offset了
+      /**
+       * 1. this.recoveryPointCheckpoints(dir) 返回该目录对应的OffsetCheckpoint对象
+       * 2.向OffsetCheckpoint对象调用write方法,将内容写入到OffsetCheckpoint对象中
+       * 3.写入的内容是recoveryPoints.get.mapValues(_.recoveryPoint)
+       * 其中recoveryPoints.get是Map<TopicPartition,Log>映射对象
+       * mapValues是将该map的每一个value,即Log对象,调用recoveryPoint方法的结果写入到OffsetCheckpoint对象中
+       */
       this.recoveryPointCheckpoints(dir).write(recoveryPoints.get.mapValues(_.recoveryPoint))
     }
   }
@@ -396,7 +408,7 @@ class LogManager(val logDirs: Array[File],//目录集合,可以处理目录存�
     logCreationOrDeletionLock synchronized {
       removedLog = logs.remove(topicAndPartition)
     }
-    if (removedLog != null) {
+    if (removedLog != null) {//返回删除的LOG对象如果存在
       //We need to wait until there is no more cleaning task on the log to be deleted before actually deleting it.
       if (cleaner != null) {
         cleaner.abortCleaning(topicAndPartition)
@@ -468,14 +480,14 @@ class LogManager(val logDirs: Array[File],//目录集合,可以处理目录存�
    */
   def cleanupLogs() {
     debug("Beginning log cleanup...")
-    var total = 0
+    var total = 0//返回删除了多少个文件
     val startMs = time.milliseconds //用于记录clean的消耗时间
-    for(log <- allLogs; if !log.config.compact) {
+    for(log <- allLogs; if !log.config.compact) {//循环所有的topic-partition对应的log对象,只要是不压缩的
       debug("Garbage collecting '" + log.name + "'")
-      total += cleanupExpiredSegments(log) + cleanupSegmentsToMaintainSize(log)
+      total += cleanupExpiredSegments(log) + cleanupSegmentsToMaintainSize(log)//就对该log对象进行删除操作
     }
     debug("Log cleanup completed. " + total + " files deleted in " +
-                  (time.milliseconds - startMs) / 1000 + " seconds")
+                  (time.milliseconds - startMs) / 1000 + " seconds")//打印一共删除了多少个文件,以及用时多少时间
   }
 
   /**
@@ -508,7 +520,7 @@ class LogManager(val logDirs: Array[File],//目录集合,可以处理目录存�
   private def flushDirtyLogs() = {
     debug("Checking for dirty logs to flush...")
 
-    for ((topicAndPartition, log) <- logs) {
+    for ((topicAndPartition, log) <- logs) {//遍历所有的LOG
       try {
         val timeSinceLastFlush = time.milliseconds - log.lastFlushTime
         debug("Checking if flush is needed on " + topicAndPartition.topic + " flush interval  " + log.config.flushMs +

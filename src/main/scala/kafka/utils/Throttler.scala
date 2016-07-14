@@ -35,11 +35,11 @@ import scala.math._
  * 节流阀类,相当于一个阀门的作用
  */
 @threadsafe
-class Throttler(val desiredRatePerSec: Double, 
-                val checkIntervalMs: Long = 100L, //单位是毫秒
+class Throttler(val desiredRatePerSec: Double, //阀门的控制伐值,每秒多少流量
+                val checkIntervalMs: Long = 100L, //单位是毫秒,时间间隔
                 val throttleDown: Boolean = true,
-                metricName: String = "throttler",
-                units: String = "entries",
+                metricName: String = "throttler",//自定义名称
+                units: String = "entries",//单位,比如byte表示字节
                 val time: Time = SystemTime) extends Logging with KafkaMetricsGroup {
   
   private val lock = new Object
@@ -56,10 +56,10 @@ class Throttler(val desiredRatePerSec: Double,
       // if we have completed an interval AND we have observed something, maybe
       // we should take a little nap
       //checkIntervalMs * Time.NsPerMs 表示将毫秒转换成微秒
-      if(elapsedNs > checkIntervalMs * Time.NsPerMs && observedSoFar > 0) {
+      if(elapsedNs > checkIntervalMs * Time.NsPerMs && observedSoFar > 0) {//说明已经到时间间隔了
         val rateInSecs = (observedSoFar * Time.NsPerSec) / elapsedNs
         val needAdjustment = !(throttleDown ^ (rateInSecs > desiredRatePerSec))
-        if(needAdjustment) {
+        if(needAdjustment) {//说明超速了,要进行睡眠
           // solve for the amount of time to sleep to make us hit the desired rate
           val desiredRateMs = desiredRatePerSec / Time.MsPerSec.toDouble
           val elapsedMs = elapsedNs / Time.NsPerMs
@@ -91,10 +91,10 @@ object Throttler {
       throttler.maybeThrottle(value)
       total += value
       val now = System.currentTimeMillis
-      if(now - start >= interval) {
-        println(total / (interval/1000.0))
-        start = now
-        total = 0
+      if(now - start >= interval) {//如果超过了时间间隔
+        println(total / (interval/1000.0))//打印每一秒有多少流量
+        start = now//重新计时
+        total = 0//清空流量
       }
     }
   }

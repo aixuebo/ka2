@@ -20,4 +20,8 @@ package kafka.server
 import kafka.message.MessageSet
 
 //follower节点去leader节点抓取数据的返回值,参见Log对象的read方法
+/**
+ * @param fetchOffset 表示要抓去的第一个序号、所在segment文件中的第一个序号、当前序号在该segment文件中的偏移量
+ * @param messageSet 表示要抓去的message的全部内容都在这些字节数组里面存放着呢
+ */
 case class FetchDataInfo(fetchOffset: LogOffsetMetadata, messageSet: MessageSet)

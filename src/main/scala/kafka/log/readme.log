@@ -1,0 +1,304 @@
+一、LogManager 管理整个log日志系统
+1.val cleaner: LogCleaner 日志清理对象,专门用于清理日志
+当开关开启日志清理功能后,则创建LogCleaner(cleanerConfig, logDirs, logs, time = time),
+传入清理的配置信息、日志存储的目录、每一个topic-partition对应的Log对象映射关系、time对象即可
+2.loadLogs()方法,加载以前系统中存留的信息到内存
+
+
+
+小方法
+一、nextLogDir(): File 查找下一个存储目录
+原则是获取LOG对象数量最少的目录Path作为File对象返回
+
+二、 getLog(topicAndPartition: TopicAndPartition): Option[Log]
+通过topic-partition找到对应的log对象
+
+三、cleanupExpiredSegments(log: Log): Int
+要对一个topic-partition的所有segment文件进行删除,只保留一定时间内的文件
+返回本次删除的文件数量,具体如何删除,是topic-partitio内部决定的,其实他内部使用多线程的异步删除文件的实现方案
+
+四、cleanupSegmentsToMaintainSize(log: Log): Int
+如果一个topic-partition的所有segment文件超过了指定伐值,则对其进行删除,直到满足伐值以内停止删除
+返回本次删除的文件数量,具体如何删除,是topic-partitio内部决定的,其实他内部使用多线程的异步删除文件的实现方案
+
+五、cleanupLogs()
+定期删除segment文件,根据LogConfig的retentionMs和retentionSize属性进行删除segment文件
+循环所有的topic-partition对应的log对象,调用三和四进行对每一个LOG对象进行删除
+
+六、logsByDir
+返回Map key是目录Path,value是该path下的topic-partition组成的LOG集合
+
+七、flushDirtyLogs()
+遍历所有的LOG对象,如果时间到了该flush的时间,则进行flush到磁盘
+
+八、deleteLog(topicAndPartition: TopicAndPartition)
+删除topic-partition 对应的LOG文件对象
+1.删除内部的topic-partition与log的映射
+2.
+ if (cleaner != null) {
+        cleaner.abortCleaning(topicAndPartition)
+        cleaner.updateCheckpoints(removedLog.dir.getParentFile)
+      }
+3.删除该topic-partition下所有的segment文件以及删除topic-partition对应的目录
+
+九、createLog(topicAndPartition: TopicAndPartition, config: LogConfig): Log
+为一个topic-partiton创建一个LOG对象,如果存在则不需要创建
+1.如果已经存在LOG了,则直接返回
+2.如果不存在,
+a.找到一个目录,在目录下创建子目录topic-partition,存储该LOG
+b.创建LOG对象,并且添加映射关系
+
+十、lockLogDirs(dirs: Seq[File]): Seq[FileLock]
+为每一个目录下创建一个.lock文件,如果出现异常,则抛出
+
+十一、checkpointLogsInDir(dir: File)
+调用该目录下所有的topic-partition对应的Log对象,
+将每一个topic-partition对应的最新同步到哪个message序号了的信息写入到OffsetCheckpoint对象中。
+
+十二、checkpointRecoveryPointOffsets()
+循环每一个目录,依次调用十一,存储每一个目录下所有的topic-partition的最新同步到哪个message的序号。
+
+
+
+LOG对象分析
+一、每一个TopicAndPartition对应一个LOG对象
+Log(val dir: File,
+          @volatile var config: LogConfig,
+          @volatile var recoveryPoint: Long = 0L,//每一个目录,对应一个recovery-point-offset-checkpoint文件,用于标示该目录下topic-partition同步到哪些offset了
+          scheduler: Scheduler,
+          time: Time = SystemTime)
+
+二、roll(): LogSegment
+滚动生成一个新的文件,返回新生成的文件
+1.记录一下下一个message的编号
+2.根据下一个message的编号,创建log和index文件,
+例如dir/00000000000000000001.log和dir/00000000000000000001.index
+3.将当前活跃的segment文件对应的index索引文件,进行trimToValidSize,让其索引文件多余的空间删除掉。
+4.创建LogSegment对象
+5.将LogSegment对象添加到内部映射中
+6.scheduler.schedule("flush-log", () => flush(newOffset), delay = 0L) //将老的信息刷新到磁盘
+7.返回刚刚创建的LogSegment对象
+
+三、maybeRoll(messagesSize: Int): LogSegment
+尝试是否更换一个文件,否则返回最后一个文件即可
+1.获取当前活跃的segment文件
+2.判断是否文件满了,如果满了,则调用方法二创建新的,如果没满,还是返回当前活跃的segment
+判断满的条件
+a.文件存储到额字节数已经够了
+b.文件创建的时间超时了
+c.索引文件满了
+
+四、flush(offset: Long)
+刷新message的序号在offset之前的message,将其刷新到磁盘上
+1.判断offset是否小于recoveryPoint,recoveryPoint表示磁盘上已经存储的最后一个序号了,
+小于说明已经存储到磁盘上了,因此不需要再刷新了
+2.查找recoveryPoint到offset之间所有的segment对应的对象.
+3.调用segment的flush方法刷新到磁盘上
+4.记录最新的recoveryPoint和最新的刷新时间
+
+五、unflushedMessages() = this.logEndOffset - this.recoveryPoint
+计算多少个message信息没有追加到日志系统中
+即下一个message的位置-上一次flush的位置,剩下的就是没有被flush到磁盘的message数量
+
+六、logSegments(from: Long, to: Long): Iterable[LogSegment]
+获取从from--to之间的映射Map
+
+七、LogAppendInfo(var firstOffset: Long, var lastOffset: Long, codec: CompressionCodec,
+	shallowCount: Int, validBytes: Int, offsetsMonotonic: Boolean)
+内部统计类,统计一个要追加的message的信息
+firstOffset表示message中第一个message的序号
+lastOffset表示message中最后一个message的序号
+codec 表示这组message传过来时候是用什么进行编码的
+shallowCount表示一个有多少个message,注意这个message是浅遍历后的message数量
+validBytes表示有效的字节数量
+offsetsMonotonic true表示参数内的所有message的序号是增量排序的
+
+
+八、analyzeAndValidateMessageSet(messages: ByteBufferMessageSet): LogAppendInfo
+对要添加的message进行统计分析
+1.对message进行校验和校验
+2.校验message的大小是否超过预期设置的伐值
+如果都没有问题,则生成统计信息,参考七
+
+九、trimInvalidBytes(messages: ByteBufferMessageSet, info: LogAppendInfo): ByteBufferMessageSet
+对有效的message信息集合进行重新组装,只要有效的额message信息
+1.获取message有效字节数
+2.只要有效字节数组装成新的ByteBufferMessageSet对象
+
+十、append(messages: ByteBufferMessageSet, assignOffsets: Boolean = true): LogAppendInfo
+追加一组message信息
+1.调用方法八,对message进行分析和统计
+2.调用方法九,对有效数据进行包装
+3.判断序号是否要由message传递的参数决定
+a.如果需要message参数决定,则需要校验条件
+如果给定的序号不是单调增长的,是不允许的;
+如果第一个message的序号都比我们现在存在的序号都小,也是不可以的,必须比我们存在的序号要大,因此只能出现空的序号,不会出现问题
+b.如果不通过message决定,则重新为message分配序号
+4.浅遍历每一个message信息,校验message的信息大小
+5.返回或者创建一个新的segment对象,存储该message信息
+6.更新下一个全局的序号
+7.判断是否要flush信息到磁盘上
+
+十一、read(startOffset: Long, maxLength: Int, maxOffset: Option[Long] = None): FetchDataInfo
+从日志文件中读取message信息
+要读取从哪个序号开始读取,最多读取多少个字节结束,以及最多读取到哪个序号为止
+1.获取小于等于startOffset的LogSegment文件对象
+2.不断的以此查找LogSegment文件,直到找到该startOffset为止。
+
+十二、asyncDeleteSegment(segment: LogSegment)
+使用线程异步删除文件,线程中调用的还是segment.delete()方法
+
+十三、deleteSegment(segment: LogSegment)
+删除映射关系segments.remove(segment.baseOffset)
+调用asyncDeleteSegment(segment: LogSegment)
+
+十四、replaceSegments(newSegment: LogSegment, oldSegments: Seq[LogSegment])
+是clean方式删除老的segment以及添加新的segment
+
+十五、delete()
+删除所有的属于该partition的所有日志
+
+十六、deleteOldSegments(predicate: LogSegment => Boolean): Int
+删除符合该LogSegment作为参数的方法的所有文件
+
+十七、truncateTo(targetOffset: Long)
+截短当前日志,参数后面的序号message都不要了
+
+十八、loadSegments() 系统初始化加载该topic-partition对应的segment文件
+1.第一次循环
+对该topic-partition的目录下,.deleted 或者 .cleaned结尾的文件,进行删除。
+2.处理.swap结尾的文件
+a.将.swap后缀名去除
+b.如果去除后是以.index结尾的文件,则删除掉
+c.如果去除后是以.log结尾的文件,则
+找到该log对应的.index文件,将其删除
+然后将文件转换成xxx.swap
+3.第二次循环
+4.
+
+
+
+
+  /* Load the log segments from the log files on disk
+   * 从磁盘上加载log的segments
+   **/
+  private def loadSegments() {
+    // now do a second pass and load all the .log and .index files 再次循环一次,加载所有的log和index文件
+    for(file <- dir.listFiles if file.isFile) {
+      val filename = file.getName
+      if(filename.endsWith(IndexFileSuffix)) {//.index结尾的文件
+        // if it is an index file, make sure it has a corresponding .log file 确保该索引文件对应的log文件也存在
+        val logFile = new File(file.getAbsolutePath.replace(IndexFileSuffix, LogFileSuffix))//找到xxx.log文件
+        if(!logFile.exists) {//如果对应的log文件不存在,则删除该索引文件
+          warn("Found an orphaned index file, %s, with no corresponding log file.".format(file.getAbsolutePath))
+          file.delete()
+        }
+      } else if(filename.endsWith(LogFileSuffix)) {
+        // if its a log file, load the corresponding log segment,获取该log文件的segment的num
+        val start = filename.substring(0, filename.length - LogFileSuffix.length).toLong
+        val hasIndex = Log.indexFilename(dir, start).exists//判断该索引文件是否存在
+        val segment = new LogSegment(dir = dir,
+                                     startOffset = start,
+                                     indexIntervalBytes = config.indexInterval,
+                                     maxIndexSize = config.maxIndexSize,
+                                     rollJitterMs = config.randomSegmentJitter,
+                                     time = time)
+        if(!hasIndex) {//如果索引文件不存在
+          error("Could not find index file corresponding to log file %s, rebuilding index...".format(segment.log.file.getAbsolutePath))
+          segment.recover(config.maxMessageSize)
+        }
+        segments.put(start, segment)
+      }
+    }
+
+    if(logSegments.size == 0) {
+      // no existing segments, create a new mutable segment beginning at offset 0
+      segments.put(0L, new LogSegment(dir = dir,
+                                     startOffset = 0,
+                                     indexIntervalBytes = config.indexInterval,
+                                     maxIndexSize = config.maxIndexSize,
+                                     rollJitterMs = config.randomSegmentJitter,
+                                     time = time))
+    } else {
+      recoverLog()
+      // reset the index size of the currently active log segment to allow more entries
+      activeSegment.index.resize(config.maxIndexSize)
+    }
+
+    // sanity check the index file of every segment to ensure we don't proceed with a corrupt segment
+    for (s <- logSegments)
+      s.index.sanityCheck()
+  }
+
+-------------
+  /**
+   * Recover and load all logs in the given data directories
+   */
+  private def loadLogs(): Unit = {
+    info("Loading logs.")
+
+    val threadPools = mutable.ArrayBuffer.empty[ExecutorService]
+    val jobs = mutable.Map.empty[File, Seq[Future[_]]]
+
+    for (dir <- this.logDirs) {
+      val pool = Executors.newFixedThreadPool(ioThreads)
+      threadPools.append(pool)
+
+      val cleanShutdownFile = new File(dir, Log.CleanShutdownFile)
+
+      if (cleanShutdownFile.exists) {
+        debug(
+          "Found clean shutdown file. " +
+          "Skipping recovery for all logs in data directory: " +
+          dir.getAbsolutePath)
+      } else {
+        // log recovery itself is being performed by `Log` class during initialization
+        brokerState.newState(RecoveringFromUncleanShutdown)
+      }
+
+      //读取recovery-point-offset-checkpoint文件
+      val recoveryPoints = this.recoveryPointCheckpoints(dir).read
+
+      val jobsForDir = for {
+        dirContent <- Option(dir.listFiles).toList
+        logDir <- dirContent if logDir.isDirectory
+      } yield {
+        Utils.runnable {
+          debug("Loading log '" + logDir.getName + "'")
+
+          val topicPartition = Log.parseTopicPartitionName(logDir.getName)
+          val config = topicConfigs.getOrElse(topicPartition.topic, defaultConfig)
+          val logRecoveryPoint = recoveryPoints.getOrElse(topicPartition, 0L)
+
+          val current = new Log(logDir, config, logRecoveryPoint, scheduler, time)
+          val previous = this.logs.put(topicPartition, current)
+
+          if (previous != null) {
+            throw new IllegalArgumentException(
+              "Duplicate log directories found: %s, %s!".format(
+              current.dir.getAbsolutePath, previous.dir.getAbsolutePath))
+          }
+        }
+      }
+
+      jobs(cleanShutdownFile) = jobsForDir.map(pool.submit).toSeq
+    }
+
+
+    try {
+      for ((cleanShutdownFile, dirJobs) <- jobs) {
+        dirJobs.foreach(_.get)
+        cleanShutdownFile.delete()
+      }
+    } catch {
+      case e: ExecutionException => {
+        error("There was an error in one of the threads during logs loading: " + e.getCause)
+        throw e.getCause
+      }
+    } finally {
+      threadPools.foreach(_.shutdown())
+    }
+
+    info("Logs loading complete.")
+  }
+

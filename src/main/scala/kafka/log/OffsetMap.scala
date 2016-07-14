@@ -27,8 +27,8 @@ import kafka.utils._
  */
 trait OffsetMap {
   def slots: Int //理论上可以存储多少个元素
-  def put(key: ByteBuffer, offset: Long) //存储一个键值对
-  def get(key: ByteBuffer): Long //通过key获取value
+  def put(key: ByteBuffer, offset: Long) //存储一个键值对,对key进行编码,以减少key的字节数
+  def get(key: ByteBuffer): Long //通过key获取value,对key进行编码,然后获取key对应的value
   def clear()
   def size: Int //获取有多少个元素
   def utilization: Double = size.toDouble / slots //当前使用率
@@ -37,8 +37,11 @@ trait OffsetMap {
 /**
  * An hash table used for deduplicating the log. This hash table uses a cryptographicly secure hash of the key as a proxy for the key
  * for comparisons and to save space on object overhead. Collisions are resolved by probing. This hash table does not support deletes.
+ * 就是一个hashtable,使用一个加密的key做为原始key的代理
  * @param memory The amount of memory this map can use 使用空间
  * @param hashAlgorithm The hash algorithm instance to use: MD2, MD5, SHA-1, SHA-256, SHA-384, SHA-512 hash算法
+ *
+ * 算法,向缓冲区byte中添加hashSize+8个字节,即算法(byteBuffer)结果就是hashSize+message序号offset,long类型的8个字节
  */
 @nonthreadsafe
 class SkimpyOffsetMap(val memory: Int, val hashAlgorithm: String = "MD5") extends OffsetMap {
@@ -84,12 +87,12 @@ class SkimpyOffsetMap(val memory: Int, val hashAlgorithm: String = "MD5") extend
     require(entries < slots, "Attempt to add a new entry to a full offset map.") //必须有坑
     lookups += 1
     hashInto(key, hash1) //对key进行hash,然后将hash后的值存储到hash1中
-    // probe until we find the first empty slot
-    var attempt = 0
+    // probe until we find the first empty slot 因为可能是冲突的,因此我们要一直找到空的坑为止
+    var attempt = 0//找坑的尝试次数,即冲突次数
     var pos = positionOf(hash1, attempt)  
     while(!isEmpty(pos)) {//无限循环,直到找到没有使用过的坑结束
       bytes.position(pos)//定位到pos的位置
-      bytes.get(hash2)//获取当前该位置存储的值
+      bytes.get(hash2)//获取当前该位置存储的key值
       if(Arrays.equals(hash1, hash2)) {//如果要添加的key已经存在,则更新对应的偏移量value即可返回
         // we found an existing entry, overwrite it and return (size does not change)
         bytes.putLong(offset)
@@ -107,7 +110,7 @@ class SkimpyOffsetMap(val memory: Int, val hashAlgorithm: String = "MD5") extend
   
   /**
    * Check that there is no entry at the given position
-   * true表示该position位置是没有元素的
+   * true表示该position位置是没有元素的,即这个坑是空的
    */
   private def isEmpty(position: Int): Boolean = 
     bytes.getLong(position) == 0 && bytes.getLong(position + 8) == 0 && bytes.getLong(position + 16) == 0
@@ -116,7 +119,7 @@ class SkimpyOffsetMap(val memory: Int, val hashAlgorithm: String = "MD5") extend
    * Get the offset associated with this key.
    * @param key The key
    * @return The offset associated with this key or -1 if the key is not found
-   * 返回key对应的偏移量value,如果找不到则返回-1
+   * 返回key对应的序号value,如果找不到则返回-1
    */
   override def get(key: ByteBuffer): Long = {
     lookups += 1
