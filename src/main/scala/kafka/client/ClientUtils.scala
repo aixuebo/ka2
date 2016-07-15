@@ -32,6 +32,7 @@ import org.apache.kafka.common.utils.Utils.{getHost, getPort}
 
  /**
  * Helper functions common to clients (producer, consumer, or admin)
+  * 客户端调用的工具包
  */
 object ClientUtils extends Logging{
 
@@ -153,20 +154,20 @@ a zipWithIndex // ((100,0), (200,1), (300,2))
     */
    def channelToOffsetManager(group: String, zkClient: ZkClient, socketTimeoutMs: Int = 3000, retryBackOffMs: Int = 1000) = {
      //连接集群中随机选择任意一个broker节点,返回连接的socket
-     var queryChannel = channelToAnyBroker(zkClient)
+     var queryChannel = channelToAnyBroker(zkClient)//返回值是BlockingChannel类型的
 
      var offsetManagerChannelOpt: Option[BlockingChannel] = None
 
      while (!offsetManagerChannelOpt.isDefined) {
 
-       var coordinatorOpt: Option[Broker] = None
+       var coordinatorOpt: Option[Broker] = None//消费者获取该group服务器被消费的元数据所在主节点
 
        while (!coordinatorOpt.isDefined) {
          try {
            //如果连接已断,在任意选取集群一个broker节点,创建socket连接
            if (!queryChannel.isConnected)
              queryChannel = channelToAnyBroker(zkClient)
-             //但因已经连接到哪个节点
+             //此时已经连接到哪个节点
            debug("Querying %s:%d to locate offset manager for %s.".format(queryChannel.host, queryChannel.port, group))
            
            queryChannel.send(ConsumerMetadataRequest(group))
@@ -202,7 +203,7 @@ a zipWithIndex // ((100,0), (200,1), (300,2))
                                                       socketTimeoutMs)
            offsetManagerChannel.connect()
            offsetManagerChannelOpt = Some(offsetManagerChannel)
-           queryChannel.disconnect()
+           queryChannel.disconnect()//关闭第一个连接器
          }
          catch {
            case ioe: IOException => // offsets manager may have moved

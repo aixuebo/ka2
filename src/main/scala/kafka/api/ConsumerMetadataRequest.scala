@@ -26,7 +26,7 @@ object ConsumerMetadataRequest {
   val CurrentVersion = 0.shortValue
   val DefaultClientId = ""
 
-  def readFrom(buffer: ByteBuffer) = {
+  def readFrom(buffer: ByteBuffer) = {//服务端从客户端接收到请求后,转换成一个对象
     // envelope
     val versionId = buffer.getShort
     val correlationId = buffer.getInt
@@ -51,7 +51,7 @@ case class ConsumerMetadataRequest(group: String,//通过group 决定该group在
     ApiUtils.shortStringLength(clientId) +
     ApiUtils.shortStringLength(group)
 
-  def writeTo(buffer: ByteBuffer) {
+  def writeTo(buffer: ByteBuffer) {//客户端把内容写到buffer中
     // envelope
     buffer.putShort(versionId)
     buffer.putInt(correlationId)

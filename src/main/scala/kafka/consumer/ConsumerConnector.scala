@@ -48,6 +48,7 @@ trait ConsumerConnector {
    *          The number of items in the list is #streams. Each stream supports
    *          an iterator over message/metadata pairs.
    *  topicCountMap:key是要抓取的topic,value是需要几个消费者抓取该topic,即因为是一个Map结构,也就是说消费者可以一次抓取多个topic信息
+   * 因为返回的结果是K V,又因为kafka存储的都是字节,因此需要对字节转换成K和V,因此有了后面两个参数
    */
   def createMessageStreams[K,V](topicCountMap: Map[String,Int],
                                 keyDecoder: Decoder[K],
@@ -72,16 +73,19 @@ trait ConsumerConnector {
 
   /**
    *  Commit the offsets of all broker partitions connected by this connector.
+   *  客户端提交一个,记录客户端已经消费到哪个序号了
    */
   def commitOffsets(retryOnFailure: Boolean)
   
   /**
    * KAFKA-1743: This method added for backward compatibility.
+   *  客户端提交一个,记录客户端已经消费到哪个序号了
    */
   def commitOffsets
   
   /**
    *  Shut down the connector
+   *  客户端要断开连接
    */
   def shutdown()
 }

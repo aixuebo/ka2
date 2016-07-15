@@ -26,11 +26,11 @@ object ConsumerMetadataResponse {
 
   private val NoBrokerOpt = Some(Broker(id = -1, host = "", port = -1))
   
-  def readFrom(buffer: ByteBuffer) = {
+  def readFrom(buffer: ByteBuffer) = {//从服务端拿到response后,转换成一个对象
     val correlationId = buffer.getInt
     val errorCode = buffer.getShort
     val broker = Broker.readFrom(buffer)
-    val coordinatorOpt = if (errorCode == ErrorMapping.NoError)
+    val coordinatorOpt = if (errorCode == ErrorMapping.NoError)//没有异常,则返回节点broker
       Some(broker)
     else
       None

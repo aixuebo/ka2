@@ -27,8 +27,9 @@ import kafka.common.{KafkaException, MessageSizeTooLargeException}
 
 /**
  * An iterator that blocks until a value can be read from the supplied queue.
+ * 该迭代器是阻塞的,直到有一个value值被返回为止
  * The iterator takes a shutdownCommand object which can be added to the queue to trigger a shutdown
- *
+ * 这个迭代其可以拿到一个shutdown命令,去添加到队列进行shutdown处理
  */
 class ConsumerIterator[K, V](private val channel: BlockingQueue[FetchedDataChunk],
                              consumerTimeoutMs: Int,

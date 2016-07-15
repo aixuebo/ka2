@@ -128,10 +128,14 @@ class ConsumerConfig private (val props: VerifiableProperties) extends ZKConfig(
   /** the number threads used to fetch data */
   val numConsumerFetchers = props.getInt("num.consumer.fetchers", NumConsumerFetchers)
   
-  /** if true, periodically commit to zookeeper the offset of messages already fetched by the consumer */
+  /** if true, periodically commit to zookeeper the offset of messages already fetched by the consumer
+    * true表示客户端会自动提交message序号,表示客户端已经抓去完了
+    **/
   val autoCommitEnable = props.getBoolean("auto.commit.enable", AutoCommit)
   
-  /** the frequency in ms that the consumer offsets are committed to zookeeper */
+  /** the frequency in ms that the consumer offsets are committed to zookeeper
+    * 客户端多久去自动提交一下message的序号
+    **/
   val autoCommitIntervalMs = props.getInt("auto.commit.interval.ms", AutoCommitInterval)
 
   /** max number of message chunks buffered for consumption, each chunk can be up to fetch.message.max.bytes*/
@@ -154,10 +158,14 @@ class ConsumerConfig private (val props: VerifiableProperties) extends ZKConfig(
   /** backoff time to refresh the leader of a partition after it loses the current leader */
   val refreshLeaderBackoffMs = props.getInt("refresh.leader.backoff.ms", RefreshMetadataBackoffMs)
 
-  /** backoff time to reconnect the offsets channel or to retry offset fetches/commits */
+  /** backoff time to reconnect the offsets channel or to retry offset fetches/commits
+    * 如果服务器连接失败,要休息多久再连接
+    **/
   val offsetsChannelBackoffMs = props.getInt("offsets.channel.backoff.ms", OffsetsChannelBackoffMs)
   /** socket timeout to use when reading responses for Offset Fetch/Commit requests. This timeout will also be used for
-   *  the ConsumerMetdata requests that are used to query for the offset coordinator. */
+   *  the ConsumerMetdata requests that are used to query for the offset coordinator.
+    * 连接服务器的socket流的超时时间
+    **/
   val offsetsChannelSocketTimeoutMs = props.getInt("offsets.channel.socket.timeout.ms", OffsetsChannelSocketTimeoutMs)
 
   /** Retry the offset commit up to this many times on failure. This retry count only applies to offset commits during

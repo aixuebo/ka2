@@ -75,7 +75,7 @@ import scala.collection._
  * /consumers/[group_id]/offsets/[topic]/[broker_id-partition_id] --> offset_counter_value
  * Each consumer tracks the offset of the latest message consumed for each partition.
  *
- * 
+ *  这个类是客户端调用生成的类,作用是通过配置文件ConsumerConfig与服务端交互
  */
 private[kafka] object ZookeeperConsumerConnector {
   val shutdownCommand: FetchedDataChunk = new FetchedDataChunk(null, null, -1L)
@@ -88,7 +88,7 @@ private[kafka] class ZookeeperConsumerConnector(val config: ConsumerConfig,
 
   private val isShuttingDown = new AtomicBoolean(false)
   private val rebalanceLock = new Object
-  private var fetcher: Option[ConsumerFetcherManager] = None
+  private var fetcher: Option[ConsumerFetcherManager] = None//消费者抓去数据的类
   private var zkClient: ZkClient = null
   private var topicRegistry = new Pool[String, Pool[Int, PartitionTopicInfo]]
   private val checkpointedZkOffsets = new Pool[TopicAndPartition, Long]
@@ -100,7 +100,7 @@ private[kafka] class ZookeeperConsumerConnector(val config: ConsumerConfig,
   private var topicPartitionChangeListener: ZKTopicPartitionChangeListener = null
   private var loadBalancerListener: ZKRebalancerListener = null
 
-  private var offsetsChannel: BlockingChannel = null
+  private var offsetsChannel: BlockingChannel = null//获取连接该group对应的服务器上已经提交到哪个message的主broker服务器的BlockingChannel对象
   private val offsetsChannelLock = new Object
 
   private var wildcardTopicWatcher: ZookeeperTopicEventWatcher = null
@@ -110,7 +110,7 @@ private[kafka] class ZookeeperConsumerConnector(val config: ConsumerConfig,
   private val zkCommitMeter = newMeter("ZooKeeperCommitsPerSec", "commits", TimeUnit.SECONDS, Map("clientId" -> config.clientId))
   private val rebalanceTimer = new KafkaTimer(newTimer("RebalanceRateAndTime", TimeUnit.MILLISECONDS, TimeUnit.SECONDS, Map("clientId" -> config.clientId)))
 
-  //设置消费者ID,格式是config.groupId_消费者本地ip-时间戳-uuid
+  //设置消费者ID,格式是config.groupId_config.consumerId或者消费者本地ip-时间戳-uuid_config.consumerId
   val consumerIdString = {
     var consumerUuid : String = null
     config.consumerId match {
@@ -131,13 +131,13 @@ private[kafka] class ZookeeperConsumerConnector(val config: ConsumerConfig,
   createFetcher()
   ensureOffsetManagerConnected()
 
-  if (config.autoCommitEnable) {
+  if (config.autoCommitEnable) {//表示客户端会自动提交message序号,表示客户端已经抓去完了
     scheduler.startup
     info("starting auto committer every " + config.autoCommitIntervalMs + " ms")
     scheduler.schedule("kafka-consumer-autocommit",
                        autoCommit,
                        delay = config.autoCommitIntervalMs,
-                       period = config.autoCommitIntervalMs,
+                       period = config.autoCommitIntervalMs,//客户端多久去自动提交一下message的序号
                        unit = TimeUnit.MILLISECONDS)
   }
 
@@ -179,6 +179,12 @@ private[kafka] class ZookeeperConsumerConnector(val config: ConsumerConfig,
 
   // Blocks until the offset manager is located and a channel is established to it.
   //阻塞,直到连接上服务器
+  /**
+a.首先连接zookeeper任意一台机器
+b.向链接的任意一台服务器发送申请,申请属于该group的元数据去哪台broker获取
+c.服务端返回该broker信息
+d.客户端再次向新的broker发送请求,返回BlockingChannel对象
+   */
   private def ensureOffsetManagerConnected() {
     if (config.offsetsStorage == "kafka") {
       if (offsetsChannel == null || !offsetsChannel.isConnected)

@@ -1,0 +1,46 @@
+消费者
+客户端调用逻辑
+一、ConsumerConfig客户端配置文件
+客户端通过定义Properties,然后创建new ConsumerConfig(props);
+二、客户端通过ConsumerConnector类,传递配置文件对象ConsumerConfig,与服务器连接。
+三、客户端定义要抓去哪些topic以及每一个topic要多少线程去抓去
+  Map<String, Integer> topicCountMap = new HashMap<>();
+  topicCountMap.put("topic", 1); //设置一个线程处理
+四、通过二的服务器连接器,将三的信息发送到服务器
+  Map<String, List<KafkaStream<byte[], byte[]>>> consumerMap = consumer.createMessageStreams(topicCountMap);
+  返回值key是客户端需要的topic,value的每一个元素是一个线程返回的结果流。
+  即KafkaStream<byte[], byte[]>就是一个客户端线程需要去处理的。
+  其中两个byte分别表示key和value的字节数组
+五、线程去处理KafkaStream<byte[], byte[]>.iterator();返回一个线程持有的迭代器
+ConsumerIterator<byte[], byte[]> consumerIterator对象。
+每一次迭代可以返回MessageAndMetadata对象
+    @Override
+    public String next() {
+        MessageAndMetadata<byte[], byte[]> msgMeta = consumerIterator.next();
+        return new String(msgMeta.message());
+    }
+六、期间不断的调用consumer.commitOffsets();方法,将客户端已经消费完的数据,发送给服务器,服务器就知道该客户端消费到什么message序号了。
+
+具体逻辑讲解
+一、ConsumerConnector实现类ZookeeperConsumerConnector,用zookeeper连接服务器,要求客户端必须能与服务器端在同一个zookeeper网内
+1.为客户端生成ID,格式是config.groupId_config.consumerId或者消费者本地ip-时间戳-uuid_config.consumerId
+2.连接zookeeper
+3.createFetcher()
+为该消费者创建数据抓取管理对象ConsumerFetcherManager
+new ConsumerFetcherManager(consumerIdString, config, zkClient) 传入消费者ID、配置文件、zookeeper
+4.config.autoCommitEnable 表示客户端会自动提交message序号,表示客户端已经抓去完了
+则定时任务,定期调用commitOffsets方法,提交message序号
+5.ensureOffsetManagerConnected 获取连接该group对应的服务器上已经提交到哪个message的主broker服务器的BlockingChannel对象
+阻塞,一直连接到服务器返回为准.
+a.首先连接zookeeper任意一台机器
+b.向链接的任意一台服务器发送申请,申请属于该group的元数据去哪台broker获取
+c.服务端返回该broker信息
+d.客户端再次向新的broker发送请求,返回BlockingChannel对象
+
+注意:发送的请求是ConsumerMetadataRequest
+
+二、createMessageStreams方法
+调用consume(topicCountMap, keyDecoder, valueDecoder)
+具体逻辑
+
+三、ConsumerFetcherManager
