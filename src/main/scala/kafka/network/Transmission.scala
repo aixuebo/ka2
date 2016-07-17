@@ -30,7 +30,7 @@ private[network] trait Transmission extends Logging {
   
   def complete: Boolean//是否已经完成该传输
   
-  //期望是不完成,如果没完成则抛异常
+  //期望是不完成,如果完成则抛异常
   protected def expectIncomplete(): Unit = {
     if(complete)
       throw new KafkaException("This operation cannot be completed on a complete request.")

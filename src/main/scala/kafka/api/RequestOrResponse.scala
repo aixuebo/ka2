@@ -22,10 +22,10 @@ import kafka.network.RequestChannel
 import kafka.utils.Logging
 
 object Request {
-  val OrdinaryConsumerId: Int = -1
-  val DebuggingConsumerId: Int = -2
+  val OrdinaryConsumerId: Int = -1//表示来自于纯粹的消费者客户端,不是follow节点
+  val DebuggingConsumerId: Int = -2//debug级别的,更低级别的客户端请求的抓取
 
-  // Broker ids are non-negative int.校验brokerId必须大于0
+  // Broker ids are non-negative int.校验brokerId必须大于0 true表示该节点来自于follow节点
   def isValidBrokerId(brokerId: Int): Boolean = (brokerId >= 0)
 }
 

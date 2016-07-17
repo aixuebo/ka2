@@ -29,6 +29,7 @@ class KafkaStream[K,V](private val queue: BlockingQueue[FetchedDataChunk],
                         val clientId: String)
    extends Iterable[MessageAndMetadata[K,V]] with java.lang.Iterable[MessageAndMetadata[K,V]] {
 
+  //不断的从队列中获取message信息
   private val iter: ConsumerIterator[K,V] =
     new ConsumerIterator[K,V](queue, consumerTimeoutMs, keyDecoder, valueDecoder, clientId)
 

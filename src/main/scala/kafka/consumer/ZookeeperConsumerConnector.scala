@@ -957,10 +957,21 @@ d.客户端再次向新的broker发送请求,返回BlockingChannel对象
                                   valueDecoder: Decoder[V])
                                 extends TopicEventHandler[String] {
 
+    //将false变成true
     if (messageStreamCreated.getAndSet(true))
       throw new RuntimeException("Each consumer connector can create " +
         "message streams by filter at most once.")
 
+    //通配符队列和流
+    /**
+     * 注意val表示不变的变量,初始化后就不会再变化了,再次调用该属性只是会得到一个具体的值而已，不会再进行for循环了
+     * 1.循环numStreams次
+     * 2.每次e表示第几次,即1 2 3 4 等等
+     * 3.每次都产生一个队列LinkedBlockingQueue和一个KafkaStream对象组成的元组(LinkedBlockingQueue,KafkaStream)
+     * 4.最终返回一个List
+     * List((LinkedBlockingQueue,KafkaStream),(LinkedBlockingQueue,KafkaStream), (LinkedBlockingQueue,KafkaStream))
+     * List的size是numStreams
+     */
     private val wildcardQueuesAndStreams = (1 to numStreams)
       .map(e => {
         val queue = new LinkedBlockingQueue[FetchedDataChunk](config.queuedMaxMessages)
@@ -972,11 +983,12 @@ d.客户端再次向新的broker发送请求,返回BlockingChannel对象
         (queue, stream)
     }).toList
 
-     // bootstrap with existing topics
+     // bootstrap with existing topics 获取所有的topic集合,并且进行topicFilter过滤后的集合
     private var wildcardTopics =
       getChildrenParentMayNotExist(zkClient, BrokerTopicsPath)
         .filter(topic => topicFilter.isTopicAllowed(topic, config.excludeInternalTopics))
 
+    //获取该消费者每一个topic要多少个线程去执行
     private val wildcardTopicCount = TopicCount.constructTopicCount(
       consumerIdString, topicFilter, numStreams, zkClient, config.excludeInternalTopics)
 
@@ -986,38 +998,44 @@ d.客户端再次向新的broker发送请求,返回BlockingChannel对象
 
     /*
      * Topic events will trigger subsequent synced rebalances.
+     * 监听/brokers/topics节点,一旦有topic变更则触发TopicEventHandler事件
      */
     info("Creating topic event watcher for topics " + topicFilter)
     wildcardTopicWatcher = new ZookeeperTopicEventWatcher(zkClient, this)
 
+    //当前所有的topic内容,当初始化和topic有变化的时候被通知
     def handleTopicEvent(allTopics: Seq[String]) {
       debug("Handling topic event")
 
+      //过滤合法的topic集合
       val updatedTopics = allTopics.filter(topic => topicFilter.isTopicAllowed(topic, config.excludeInternalTopics))
 
+      //获取到不在wildcardTopics集合里面的topic,即刚刚新增的topic
       val addedTopics = updatedTopics filterNot (wildcardTopics contains)
       if (addedTopics.nonEmpty)
         info("Topic event: added topics = %s"
-                             .format(addedTopics))
+                             .format(addedTopics))//说明一定有刚刚新增的topic
 
       /*
        * TODO: Deleted topics are interesting (and will not be a concern until
        * 0.8 release). We may need to remove these topics from the rebalance
        * listener's map in reinitializeConsumer.
+       * 有一些topic已经不存在了,所以要找到wildcardTopics中不包含的topic
        */
       val deletedTopics = wildcardTopics filterNot (updatedTopics contains)
       if (deletedTopics.nonEmpty)
         info("Topic event: deleted topics = %s"
-                             .format(deletedTopics))
+                             .format(deletedTopics))//说明有删除的topic
 
-      wildcardTopics = updatedTopics
+      wildcardTopics = updatedTopics//更新为最新的topic集合
       info("Topics to consume = %s".format(wildcardTopics))
 
-      if (addedTopics.nonEmpty || deletedTopics.nonEmpty)
+      if (addedTopics.nonEmpty || deletedTopics.nonEmpty)//重新平衡topic消费
         reinitializeConsumer(wildcardTopicCount, wildcardQueuesAndStreams)
     }
 
+    //返回每一个KafkaStream流的集合
     def streams: Seq[KafkaStream[K,V]] =
-      wildcardQueuesAndStreams.map(_._2)
+      wildcardQueuesAndStreams.map(_._2)//循环wildcardQueuesAndStreams,每个元素进入map方法,最终返回的还是一个集合,只是集合的内容变成_2了
   }
 }

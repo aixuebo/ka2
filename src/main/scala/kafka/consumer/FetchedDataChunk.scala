@@ -21,4 +21,4 @@ import kafka.message.ByteBufferMessageSet
 
 case class FetchedDataChunk(messages: ByteBufferMessageSet,
                             topicInfo: PartitionTopicInfo,
-                            fetchOffset: Long)
+                            fetchOffset: Long)//当前抓取的message序号

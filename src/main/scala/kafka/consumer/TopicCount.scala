@@ -22,6 +22,7 @@ import org.I0Itec.zkclient.ZkClient
 import kafka.utils.{Json, ZKGroupDirs, ZkUtils, Logging, Utils}
 import kafka.common.KafkaException
 
+//计算该消费者每一个topic要多少个线程去执行
 private[kafka] trait TopicCount {
 
   def getConsumerThreadIdsPerTopic: Map[String, Set[ConsumerThreadId]] //key是topic,value是topic多少个线程去消费,每一个消费线程持有一个ConsumerThreadId对象
@@ -42,17 +43,18 @@ private[kafka] object TopicCount extends Logging {
   val blackListPattern = "black_list"
   val staticPattern = "static"
 
+  //线程ID的名字,由消费者名称+线程ID组成
   def makeThreadId(consumerIdString: String, threadId: Int) = consumerIdString + "-" + threadId
 
   //返回HashMap[String, Set[ConsumerThreadId]] key是topic,value是该topic上多个线程ID可以读取topic信息
   def makeConsumerThreadIdsPerTopic(consumerIdString: String,
                                     topicCountMap: Map[String,  Int]) = {
     val consumerThreadIdsPerTopicMap = new mutable.HashMap[String, Set[ConsumerThreadId]]()
-    for ((topic, nConsumers) <- topicCountMap) {
+    for ((topic, nConsumers) <- topicCountMap) {//循环每一个topic有多少个线程
       val consumerSet = new mutable.HashSet[ConsumerThreadId]
       assert(nConsumers >= 1)
       for (i <- 0 until nConsumers)
-        consumerSet += ConsumerThreadId(consumerIdString, i)
+        consumerSet += ConsumerThreadId(consumerIdString, i)//每一个线程创建一个线程对象
       consumerThreadIdsPerTopicMap.put(topic, consumerSet)
     }
     consumerThreadIdsPerTopicMap
@@ -61,19 +63,19 @@ private[kafka] object TopicCount extends Logging {
   ///consumers/${group}/ids/${consumerId} 内容{"pattern":"white_list、black_list、static之一","subscription":{"${topic}":2,"${topic}":2}  }
   def constructTopicCount(group: String, consumerId: String, zkClient: ZkClient, excludeInternalTopics: Boolean) : TopicCount = {
     val dirs = new ZKGroupDirs(group)
-    val topicCountString = ZkUtils.readData(zkClient, dirs.consumerRegistryDir + "/" + consumerId)._1
+    val topicCountString = ZkUtils.readData(zkClient, dirs.consumerRegistryDir + "/" + consumerId)._1//查看该消费者下要消费多少个topic以及每一个topic多少个线程,_1返回的是内容
     var subscriptionPattern: String = null //white_list、black_list、static之一
     var topMap: Map[String, Int] = null // {"${topic}":2,"${topic}":2} key是topic,value是该topic在group中要有多少个线程去读取
     try {
-      Json.parseFull(topicCountString) match {
+      Json.parseFull(topicCountString) match {//解析zookeeper的内容
         
         case Some(m) =>
-          val consumerRegistrationMap = m.asInstanceOf[Map[String, Any]]
-          consumerRegistrationMap.get("pattern") match {
+          val consumerRegistrationMap = m.asInstanceOf[Map[String, Any]]//内容是一个map对象
+          consumerRegistrationMap.get("pattern") match {//获取模式
             case Some(pattern) => subscriptionPattern = pattern.asInstanceOf[String]
             case None => throw new KafkaException("error constructing TopicCount : " + topicCountString)
           }
-          consumerRegistrationMap.get("subscription") match {
+          consumerRegistrationMap.get("subscription") match {//获取subscription,他是一个map对象
             case Some(sub) => topMap = sub.asInstanceOf[Map[String, Int]]
             case None => throw new KafkaException("error constructing TopicCount : " + topicCountString)
           }
@@ -85,6 +87,7 @@ private[kafka] object TopicCount extends Logging {
         throw e
     }
 
+    //是否是白名单还是黑名单
     val hasWhiteList = whiteListPattern.equals(subscriptionPattern)
     val hasBlackList = blackListPattern.equals(subscriptionPattern)
 
@@ -139,7 +142,7 @@ private[kafka] class StaticTopicCount(val consumerIdString: String,
 private[kafka] class WildcardTopicCount(zkClient: ZkClient,
                                         consumerIdString: String,
                                         topicFilter: TopicFilter,
-                                        numStreams: Int,
+                                        numStreams: Int,//每一个topic有多少个线程
                                         excludeInternalTopics: Boolean) extends TopicCount {
   def getConsumerThreadIdsPerTopic = {
     /**
@@ -149,8 +152,9 @@ private[kafka] class WildcardTopicCount(zkClient: ZkClient,
     val wildcardTopics = ZkUtils.getChildrenParentMayNotExist(zkClient, ZkUtils.BrokerTopicsPath)
                          .filter(topic => topicFilter.isTopicAllowed(topic, excludeInternalTopics))
                          
-    //根据过滤后符合的topic,生成  [String, Set[ConsumerThreadId]]信息,key是topic,value是该topic多少个线程消费  
-    TopicCount.makeConsumerThreadIdsPerTopic(consumerIdString, Map(wildcardTopics.map((_, numStreams)): _*))
+    //根据过滤后符合的topic,生成  [String, Set[ConsumerThreadId]]信息,key是topic,value是该topic多少个线程消费
+    //wildcardTopics.map((_, numStreams)) 表示每一个topic转换成该topic和对应的线程数量的元组
+   TopicCount.makeConsumerThreadIdsPerTopic(consumerIdString, Map(wildcardTopics.map((_, numStreams)): _*))
   }
 
   //返回key是正则表达式,value是每一个topic要产生多少个线程读取,该Map的size=1

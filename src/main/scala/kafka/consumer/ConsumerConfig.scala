@@ -122,7 +122,9 @@ class ConsumerConfig private (val props: VerifiableProperties) extends ZKConfig(
   /** the socket receive buffer for network requests */
   val socketReceiveBufferBytes = props.getInt("socket.receive.buffer.bytes", SocketBufferSize)
   
-  /** the number of byes of messages to attempt to fetch */
+  /** the number of byes of messages to attempt to fetch
+    * 一次抓取message的最大字节
+    **/
   val fetchMessageMaxBytes = props.getInt("fetch.message.max.bytes", FetchSize)
 
   /** the number threads used to fetch data */
@@ -144,10 +146,14 @@ class ConsumerConfig private (val props: VerifiableProperties) extends ZKConfig(
   /** max number of retries during rebalance 最大重新平衡次数*/
   val rebalanceMaxRetries = props.getInt("rebalance.max.retries", MaxRebalanceRetries)
   
-  /** the minimum amount of data the server should return for a fetch request. If insufficient data is available the request will block */
+  /** the minimum amount of data the server should return for a fetch request. If insufficient data is available the request will block \
+    * 一次抓取请求,server最小返回给客户端的字节数,如果请求不足这些数据,则请求将会被阻塞
+    **/
   val fetchMinBytes = props.getInt("fetch.min.bytes", MinFetchBytes)
   
-  /** the maximum amount of time the server will block before answering the fetch request if there isn't sufficient data to immediately satisfy fetch.min.bytes */
+  /** the maximum amount of time the server will block before answering the fetch request if there isn't sufficient data to immediately satisfy fetch.min.bytes
+    * 如果没有充足的数据去立即满足抓取的最小值,则在返回给抓取请求客户端之前,在server对岸最大的停留时间
+    **/
   val fetchWaitMaxMs = props.getInt("fetch.wait.max.ms", MaxFetchWaitMs)
   
   /** backoff time between retries during rebalance

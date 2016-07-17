@@ -22,11 +22,14 @@ import java.util.concurrent.atomic._
 import kafka.message._
 import kafka.utils.Logging
 
+/**
+ * 消费者端为每一个topic-partition生成一个该对象,描述抓取和消费的情况以及抓取回来存储的队列
+ */
 class PartitionTopicInfo(val topic: String,
                          val partitionId: Int,
                          private val chunkQueue: BlockingQueue[FetchedDataChunk],
-                         private val consumedOffset: AtomicLong,
-                         private val fetchedOffset: AtomicLong,
+                         private val consumedOffset: AtomicLong,//已经消费到哪个序号了,小于该值得序号都是已经消费过的信息,该序号本身的信息是没有被消费的
+                         private val fetchedOffset: AtomicLong,//下一个要去抓取的序号
                          private val fetchSize: AtomicInteger,
                          private val clientId: String) extends Logging {
 
@@ -55,10 +58,10 @@ class PartitionTopicInfo(val topic: String,
   def enqueue(messages: ByteBufferMessageSet) {
     val size = messages.validBytes
     if(size > 0) {
-      val next = messages.shallowIterator.toSeq.last.nextOffset
+      val next = messages.shallowIterator.toSeq.last.nextOffset//最后一个信息的下一个序号
       trace("Updating fetch offset = " + fetchedOffset.get + " to " + next)
-      chunkQueue.put(new FetchedDataChunk(messages, this, fetchedOffset.get))
-      fetchedOffset.set(next)
+      chunkQueue.put(new FetchedDataChunk(messages, this, fetchedOffset.get))//存储一组数据块messageBuffer信息
+      fetchedOffset.set(next)//设置下一个要去抓取的序号
       debug("updated fetch offset of (%s) to %d".format(this, next))
       consumerTopicStats.getConsumerTopicStats(topic).byteRate.mark(size)
       consumerTopicStats.getConsumerAllTopicStats().byteRate.mark(size)
@@ -74,5 +77,6 @@ class PartitionTopicInfo(val topic: String,
 object PartitionTopicInfo {
   val InvalidOffset = -1L
 
+  //true表示序号非法
   def isOffsetInvalid(offset: Long) = offset < 0L
 }

@@ -156,6 +156,7 @@ class ConsumerFetcherManager(private val consumerIdString: String,//标示消费
     info("All connections stopped")
   }
 
+  //向消费者抓取管理器,发送说参数这些topic-partition抓取失败了
   def addPartitionsWithError(partitionList: Iterable[TopicAndPartition]) {
     debug("adding partitions with error %s".format(partitionList))
     inLock(lock) {

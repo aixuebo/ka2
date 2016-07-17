@@ -164,11 +164,11 @@ class SimpleConsumer(val host: String,//broker的host和端口
 
   /**
    * Get the earliest or latest offset of a given topic, partition.
-   * @param topicAndPartition Topic and partition of which the offset is needed.
-   * @param earliestOrLatest A value to indicate earliest or latest offset.
-   * @param consumerId Id of the consumer which could be a consumer client, SimpleConsumerShell or a follower broker.
-   * @return Requested offset.
-   *
+   * @param topicAndPartition Topic and partition of which the offset is needed.要查找的topic-partition
+   * @param earliestOrLatest A value to indicate earliest or latest offset.//要查找最早的还是最新的数据
+   * @param consumerId Id of the consumer which could be a consumer client, SimpleConsumerShell or a follower broker.该id可以表示是消费者客户端、SimpleConsumerShell还是某一个follower从节点
+   * @return Requested offset.返回最新的序号
+   * 查找某一个topic-partition的某个时间点的序号
    */
   def earliestOrLatestOffset(topicAndPartition: TopicAndPartition, earliestOrLatest: Long, consumerId: Int): Long = {
     val request = OffsetRequest(requestInfo = Map(topicAndPartition -> PartitionOffsetRequestInfo(earliestOrLatest, 1)),

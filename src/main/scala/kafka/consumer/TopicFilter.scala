@@ -27,12 +27,14 @@ import kafka.common.Topic
  */
 sealed abstract class TopicFilter(rawRegex: String) extends Logging {
 
+  //正则表达式,replace参数是字符串或者字节,即有这些字符串的才被替换,而replaceAll参数是正则表达式,表示符合这个正则表达式的都会被替换
+  //例如String rawRegex = "' ind ex,'indd ,xx\""; 转换成结果就是index|'indd|xx
   val regex = rawRegex
           .trim
-          .replace(',', '|')
-          .replace(" ", "")
-          .replaceAll("""^["']+""","")
-          .replaceAll("""["']+$""","") // property files may bring quotes
+          .replace(',', '|')//替换逗号字符
+          .replace(" ", "")//替换空格字符
+          .replaceAll("""^["']+""","")//替换以'或者"开头的内容,替换成""
+          .replaceAll("""["']+$""","") // property files may bring quotes替换以'或者"结尾的内容,替换成""
 
   try {
     Pattern.compile(regex)

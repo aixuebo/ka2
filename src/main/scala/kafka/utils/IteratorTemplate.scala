@@ -23,7 +23,7 @@ import java.lang.IllegalStateException
 class State
 object DONE extends State //已经迭代完了
 object READY extends State //已经准备好了,可以进行迭代了
-object NOT_READY extends State //还没有准备好进行迭代,属于初始状态
+object NOT_READY extends State //还没有准备好进行迭代,属于初始状态,让迭代器暂时没准备好,没准备好的意思就是下次还是会走makeNext方法
 object FAILED extends State //迭代失败
 
 /**
@@ -89,7 +89,7 @@ abstract class IteratorTemplate[T] extends Iterator[T] with java.util.Iterator[T
 
   //重新设置迭代状态
   protected def resetState() {
-    state = NOT_READY
+    state = NOT_READY//让迭代器暂时没准备好,没准备好的意思就是下次还是会走makeNext方法
   }
 }
 

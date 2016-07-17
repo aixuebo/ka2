@@ -37,11 +37,21 @@ import com.yammer.metrics.core.Gauge
  *  Abstract class for fetching data from multiple partitions from the same broker.
  *  消费者clientId,要向sourceBroker该节点发送请求,获取数据
  *  sourceBroker节点就是partition的leader节点
+ *
+ *  ConsumerFetcherThread类继承了该抽象类
  */
 
 /**
- * @fetchSize 表示每次抓取的数据数量
- * @fetcherBrokerId 标示本地消费者节点
+ * @param name 线程名字
+ * @param clientId 指明是一个kafka的消费者客户端,被使用与区分不同的客户端
+ * @param sourceBroker 去哪个节点去抓取数据
+ * @param socketTimeout 数据发送的socket超时时间
+ * @param socketBufferSize 数据发送的socket的缓冲大小
+ * @param fetchSize 一次抓取message的最大字节
+ * @param fetcherBrokerId 表示抓取的节点ID,如果是纯粹的客户端消费者,则-1即可,如果是集群上其他follow节点抓取数据,则该字段是有值的
+ * @param maxWait 如果没有充足的数据去立即满足抓取的最小值,则在返回给抓取请求客户端之前,在server对岸最大的停留时间
+ * @param minBytes 一次抓取请求,server最小返回给客户端的字节数,如果请求不足这些数据,则请求将会被阻塞
+ * @param isInterruptible 如果是true,表示停止后要调用interrupt方法
  */
 abstract class AbstractFetcherThread(name: String, clientId: String, sourceBroker: Broker, socketTimeout: Int, socketBufferSize: Int,
                                      fetchSize: Int, fetcherBrokerId: Int = -1, maxWait: Int = 0, minBytes: Int = 1,
@@ -65,7 +75,7 @@ abstract class AbstractFetcherThread(name: String, clientId: String, sourceBroke
           maxWait(maxWait).
           minBytes(minBytes)
 
-  /* callbacks to be defined in subclass */
+  /* callbacks to be defined in subclass 回调需要子类重新定义*/
 
   // process fetched data 处理抓取数据
   def processPartitionData(topicAndPartition: TopicAndPartition, fetchOffset: Long,
@@ -82,23 +92,24 @@ abstract class AbstractFetcherThread(name: String, clientId: String, sourceBroke
     simpleConsumer.close()
   }
 
+  //线程会不断的调用该方法
   override def doWork() {
     inLock(partitionMapLock) {
-      if (partitionMap.isEmpty)
+      if (partitionMap.isEmpty)//说明目前没有要抓取的topic-partition
         partitionMapCond.await(200L, TimeUnit.MILLISECONDS)
         
       //添加要抓取topic-partition上从offset开始,抓取fetchSize个数据
       partitionMap.foreach {
         case((topicAndPartition, offset)) =>
           fetchRequestBuilder.addFetch(topicAndPartition.topic, topicAndPartition.partition,
-                           offset, fetchSize)
+                           offset, fetchSize)//添加要抓取topic-partition上从offset序号开始,最多抓取多少个字节信息
       }
     }
 
-    val fetchRequest = fetchRequestBuilder.build()
+    val fetchRequest = fetchRequestBuilder.build()//生成要发送的抓取请求
     
     //真正发送抓取数据请求,去进行抓取数据
-    if (!fetchRequest.requestInfo.isEmpty)
+    if (!fetchRequest.requestInfo.isEmpty)//有抓取内容,则真正去抓取数据
       processFetchRequest(fetchRequest)
   }
 
@@ -109,13 +120,14 @@ abstract class AbstractFetcherThread(name: String, clientId: String, sourceBroke
     try {
       //向brokerID 发送请求fetchRequest
       trace("Issuing to broker %d of fetch request %s".format(sourceBroker.id, fetchRequest))
-      response = simpleConsumer.fetch(fetchRequest)
+      response = simpleConsumer.fetch(fetchRequest)//发送抓取请求
     } catch {
       case t: Throwable =>
         if (isRunning.get) {
+          //打印抓取请求内容,可能出现的问题堆栈信息也打印出来
           warn("Error in fetch %s. Possible cause: %s".format(fetchRequest, t.toString))
           partitionMapLock synchronized {
-            partitionsWithError ++= partitionMap.keys
+            partitionsWithError ++= partitionMap.keys //追加输出失败的topic-partition
           }
         }
     }
@@ -125,10 +137,10 @@ abstract class AbstractFetcherThread(name: String, clientId: String, sourceBroke
     if (response != null) {
       // process fetched data
       inLock(partitionMapLock) {
-        response.data.foreach {
+        response.data.foreach {//循环每一个topic-partition和对应的数据
           case(topicAndPartition, partitionData) =>
             val (topic, partitionId) = topicAndPartition.asTuple
-            val currentOffset = partitionMap.get(topicAndPartition)
+            val currentOffset = partitionMap.get(topicAndPartition)//等待抓取的topic-partition对应的下一个序号
             // we append to the log if the current offset is defined and it is the same as the offset requested during fetch
             //校验请求前时,抓取该partition的开始位置和当前接收到返回值后的位置是否一致,进入if说明是一致的,即合法的
             if (currentOffset.isDefined && fetchRequest.requestInfo(topicAndPartition).offset == currentOffset.get) {
@@ -136,12 +148,12 @@ abstract class AbstractFetcherThread(name: String, clientId: String, sourceBroke
                 case ErrorMapping.NoError =>
                   //说明抓取数据成功
                   try {
-                    val messages = partitionData.messages.asInstanceOf[ByteBufferMessageSet]
-                    val validBytes = messages.validBytes
+                    val messages = partitionData.messages.asInstanceOf[ByteBufferMessageSet]//获取partition对应的messagebuffer信息
+                    val validBytes = messages.validBytes//有效的浅遍历数据字节数
                     //获取抓取后的更新位置
-                    val newOffset = messages.shallowIterator.toSeq.lastOption match {
+                    val newOffset = messages.shallowIterator.toSeq.lastOption match {//获取浅遍历之后的下一个序号
                       case Some(m: MessageAndOffset) => m.nextOffset
-                      case None => currentOffset.get
+                      case None => currentOffset.get//如果没有最后一个message,则还是当前序号是下一次的序号
                     }
                     //进行更新,表示已经抓取该partition的newOffset位置了,下次抓取从该位置开始抓取
                     partitionMap.put(topicAndPartition, newOffset)
@@ -175,8 +187,8 @@ abstract class AbstractFetcherThread(name: String, clientId: String, sourceBroke
                 case _ =>
                   if (isRunning.get) {
                     error("Error for partition [%s,%d] to broker %d:%s".format(topic, partitionId, sourceBroker.id,
-                      ErrorMapping.exceptionFor(partitionData.error).getClass))
-                    partitionsWithError += topicAndPartition
+                      ErrorMapping.exceptionFor(partitionData.error).getClass))//日志说明该topic-partition在去某个节点抓取数据的时候出现异常了,打印异常代码
+                    partitionsWithError += topicAndPartition//添加该topic-partition抓取失败
                   }
               }
             }
@@ -184,8 +196,9 @@ abstract class AbstractFetcherThread(name: String, clientId: String, sourceBroke
       }
     }
 
+    //说明本次抓取失败了
     if(partitionsWithError.size > 0) {
-      debug("handling partitions with error for %s".format(partitionsWithError))
+      debug("handling partitions with error for %s".format(partitionsWithError))//哪些topic-partition抓取失败了
       handlePartitionsWithErrors(partitionsWithError)
     }
   }
@@ -196,12 +209,13 @@ abstract class AbstractFetcherThread(name: String, clientId: String, sourceBroke
     try {
       for ((topicAndPartition, offset) <- partitionAndOffsets) {
         // If the partitionMap already has the topic/partition, then do not update the map with the old offset
+        //如果该要抓取的序号是非法的,则要重新规划要抓取的序号,是最新的还是最老的。。。如果不非法,则设置要抓取的需要是什么
         if (!partitionMap.contains(topicAndPartition))
           partitionMap.put(
             topicAndPartition,
             if (PartitionTopicInfo.isOffsetInvalid(offset)) handleOffsetOutOfRange(topicAndPartition) else offset)
       }
-      partitionMapCond.signalAll()
+      partitionMapCond.signalAll()//激活该条件,因为已经向队列新增数据了
     } finally {
       partitionMapLock.unlock()
     }
