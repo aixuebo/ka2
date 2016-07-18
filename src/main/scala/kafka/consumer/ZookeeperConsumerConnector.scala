@@ -91,7 +91,7 @@ private[kafka] class ZookeeperConsumerConnector(val config: ConsumerConfig,
   private var fetcher: Option[ConsumerFetcherManager] = None//消费者抓去数据的类
   private var zkClient: ZkClient = null
   private var topicRegistry = new Pool[String, Pool[Int, PartitionTopicInfo]]
-  private val checkpointedZkOffsets = new Pool[TopicAndPartition, Long]
+  private val checkpointedZkOffsets = new Pool[TopicAndPartition, Long]//表示某个topic-partition提交到zookeeper到哪个序号了
   private val topicThreadIdAndQueues = new Pool[(String, ConsumerThreadId), BlockingQueue[FetchedDataChunk]]
   private val scheduler = new KafkaScheduler(threads = 1, threadNamePrefix = "kafka-consumer-scheduler-")
   private val messageStreamCreated = new AtomicBoolean(false)
@@ -313,20 +313,23 @@ d.客户端再次向新的broker发送请求,返回BlockingChannel对象
     }
   }
 
+  //将消费到什么位置了,写入到zookeeper中
   def commitOffsetToZooKeeper(topicPartition: TopicAndPartition, offset: Long) {
     if (checkpointedZkOffsets.get(topicPartition) != offset) {
       val topicDirs = new ZKGroupTopicDirs(config.groupId, topicPartition.topic)
-      updatePersistentPath(zkClient, topicDirs.consumerOffsetDir + "/" + topicPartition.partition, offset.toString)
-      checkpointedZkOffsets.put(topicPartition, offset)
+      updatePersistentPath(zkClient, topicDirs.consumerOffsetDir + "/" + topicPartition.partition, offset.toString)//更新zookeeper内容
+      checkpointedZkOffsets.put(topicPartition, offset)//记录该topic-partition提交到zookeeper已经到offset序号了
       zkCommitMeter.mark()
     }
   }
 
+  //true表示成功提交了,false表示没提交
   def commitOffsets(isAutoCommit: Boolean) {
     var retriesRemaining = 1 + (if (isAutoCommit) config.offsetsCommitMaxRetries else 0) // no retries for commits from auto-commit
     var done = false
 
     while (!done) {
+      //true表示提交完成,完成不代表成功,有可能失败了,但是不需要重试,也是完成true
       val committed = offsetsChannelLock synchronized { // committed when we receive either no error codes or only MetadataTooLarge errors
         val offsetsToCommit = immutable.Map(topicRegistry.flatMap { case (topic, partitionTopicInfos) =>
           partitionTopicInfos.map { case (partition, info) =>
@@ -335,24 +338,25 @@ d.客户端再次向新的broker发送请求,返回BlockingChannel对象
         }.toSeq:_*)
 
         if (offsetsToCommit.size > 0) {
-          if (config.offsetsStorage == "zookeeper") {
+          if (config.offsetsStorage == "zookeeper") {//存储在zookeeper中
             offsetsToCommit.foreach { case(topicAndPartition, offsetAndMetadata) =>
               commitOffsetToZooKeeper(topicAndPartition, offsetAndMetadata.offset)
             }
             true
-          } else {
+          } else {//说明是存储到kafka的某个topic下
             val offsetCommitRequest = OffsetCommitRequest(config.groupId, offsetsToCommit, clientId = config.clientId)
-            ensureOffsetManagerConnected()
+            ensureOffsetManagerConnected()//确保连接了该topic-partition,作为生产者,向kafka写入数据
             try {
               kafkaCommitMeter.mark(offsetsToCommit.size)
-              offsetsChannel.send(offsetCommitRequest)
-              val offsetCommitResponse = OffsetCommitResponse.readFrom(offsetsChannel.receive().buffer)
+              offsetsChannel.send(offsetCommitRequest)//发送请求
+              val offsetCommitResponse = OffsetCommitResponse.readFrom(offsetsChannel.receive().buffer)//收到回复
               trace("Offset commit response: %s.".format(offsetCommitResponse))
 
+              //定义四个变量
               val (commitFailed, retryableIfFailed, shouldRefreshCoordinator, errorCount) = {
                 offsetCommitResponse.commitStatus.foldLeft(false, false, false, 0) { case(folded, (topicPartition, errorCode)) =>
 
-                  if (errorCode == ErrorMapping.NoError && config.dualCommitEnabled) {
+                  if (errorCode == ErrorMapping.NoError && config.dualCommitEnabled) {//同时也向zookeeper写入
                       val offset = offsetsToCommit(topicPartition).offset
                       commitOffsetToZooKeeper(topicPartition, offset)
                   }
@@ -360,26 +364,26 @@ d.客户端再次向新的broker发送请求,返回BlockingChannel对象
                   (folded._1 || // update commitFailed
                      errorCode != ErrorMapping.NoError,
 
-                  folded._2 || // update retryableIfFailed - (only metadata too large is not retryable)
+                  folded._2 || // update retryableIfFailed - (only metadata too large is not retryable) 仅仅当元数据太长的时候是不允许重试的,其他都失败的时候更新,让其重试
                     (errorCode != ErrorMapping.NoError && errorCode != ErrorMapping.OffsetMetadataTooLargeCode),
 
-                  folded._3 || // update shouldRefreshCoordinator
+                  folded._3 || // update shouldRefreshCoordinator 应该重新连接topic
                     errorCode == ErrorMapping.NotCoordinatorForConsumerCode ||
                     errorCode == ErrorMapping.ConsumerCoordinatorNotAvailableCode,
 
-                  // update error count
+                  // update error count 更新错误数量
                   folded._4 + (if (errorCode != ErrorMapping.NoError) 1 else 0))
                 }
               }
               debug(errorCount + " errors in offset commit response.")
 
 
-              if (shouldRefreshCoordinator) {
+              if (shouldRefreshCoordinator) {//应该重新连接
                 debug("Could not commit offsets (because offset coordinator has moved or is unavailable).")
                 offsetsChannel.disconnect()
               }
 
-              if (commitFailed && retryableIfFailed)
+              if (commitFailed && retryableIfFailed)//需要重试,虽然失败了,因此返回false,说明本次没成功
                 false
               else
                 true

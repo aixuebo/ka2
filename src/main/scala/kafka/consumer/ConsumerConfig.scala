@@ -182,13 +182,18 @@ class ConsumerConfig private (val props: VerifiableProperties) extends ZKConfig(
     * it is retried and that retry does not count toward this limit. */
   val offsetsCommitMaxRetries = props.getInt("offsets.commit.max.retries", OffsetsCommitMaxRetries)
 
-  /** Specify whether offsets should be committed to "zookeeper" (default) or "kafka" */
+  /** Specify whether offsets should be committed to "zookeeper" (default) or "kafka"
+    * 表示消费者已经消费的序号被提交到zookeeper还是提交到kafka的某个topic下存储
+    **/
   val offsetsStorage = props.getString("offsets.storage", OffsetsStorage).toLowerCase
 
   /** If you are using "kafka" as offsets.storage, you can dual commit offsets to ZooKeeper (in addition to Kafka). This
     * is required during migration from zookeeper-based offset storage to kafka-based offset storage. With respect to any
     * given consumer group, it is safe to turn this off after all instances within that group have been migrated to
-    * the new jar that commits offsets to the broker (instead of directly to ZooKeeper). */
+    * the new jar that commits offsets to the broker (instead of directly to ZooKeeper).
+    * 如果你使用kafka的某一个内部topic存储消费到了哪个序号了,也可以双重的提交到zookeeper中,这个需求是在从基于zookeeper的版本1,迁移到基于kafka的过程时候使用双重写入。
+    * 代表任何消费者组,他都是会很安全的转向 已经迁移了新的jar包提交序号给broker节点后,依然安全的可以被zookeeper的老版本也可以使用
+    **/
   val dualCommitEnabled = props.getBoolean("dual.commit.enabled", if (offsetsStorage == "kafka") true else false)
 
   /* what to do if an offset is out of range.
