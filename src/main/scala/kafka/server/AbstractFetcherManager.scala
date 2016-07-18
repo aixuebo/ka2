@@ -26,14 +26,17 @@ import kafka.metrics.KafkaMetricsGroup
 import kafka.common.TopicAndPartition
 import com.yammer.metrics.core.Gauge
 
+
 /**
- * 参数numFetchers,表示多少线程去抓取数据
+ * @param name 线程名称
+ * @param clientId 消费者的客户端ID名称
+ * @param numFetchers 多少个线程去抓去数据
  */
 abstract class AbstractFetcherManager(protected val name: String, clientId: String, numFetchers: Int = 1)
   extends Logging with KafkaMetricsGroup {
   // map of (source broker_id, fetcher_id per source broker) => fetcher
   //每一个节点和partition对应的抓取线程
-  private val fetcherThreadMap = new mutable.HashMap[BrokerAndFetcherId, AbstractFetcherThread]
+  private val fetcherThreadMap = new mutable.HashMap[BrokerAndFetcherId, AbstractFetcherThread]//key是每一个topic-partition-第几个线程去抓去,value是对应的抓去线程
   private val mapLock = new Object
   this.logIdent = "[" + name + "] "
 
@@ -137,7 +140,7 @@ abstract class AbstractFetcherManager(protected val name: String, clientId: Stri
   def closeAllFetchers() {
     mapLock synchronized {
       for ( (_, fetcher) <- fetcherThreadMap) {
-        fetcher.shutdown()
+        fetcher.shutdown()//关闭每一个抓去的线程
       }
       fetcherThreadMap.clear()
     }

@@ -127,7 +127,7 @@ class ConsumerConfig private (val props: VerifiableProperties) extends ZKConfig(
     **/
   val fetchMessageMaxBytes = props.getInt("fetch.message.max.bytes", FetchSize)
 
-  /** the number threads used to fetch data */
+  /** the number threads used to fetch data 多少个线程去抓去数据*/
   val numConsumerFetchers = props.getInt("num.consumer.fetchers", NumConsumerFetchers)
   
   /** if true, periodically commit to zookeeper the offset of messages already fetched by the consumer
@@ -161,7 +161,9 @@ class ConsumerConfig private (val props: VerifiableProperties) extends ZKConfig(
    **/
   val rebalanceBackoffMs = props.getInt("rebalance.backoff.ms", zkSyncTimeMs)
 
-  /** backoff time to refresh the leader of a partition after it loses the current leader */
+  /** backoff time to refresh the leader of a partition after it loses the current leader
+    * 每次刷新某个topic-partition的leader节点的时间间隔
+    **/
   val refreshLeaderBackoffMs = props.getInt("refresh.leader.backoff.ms", RefreshMetadataBackoffMs)
 
   /** backoff time to reconnect the offsets channel or to retry offset fetches/commits

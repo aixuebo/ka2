@@ -26,7 +26,7 @@ import java.nio.ByteBuffer
 object TopicMetadataResponse {
 
   def readFrom(buffer: ByteBuffer): TopicMetadataResponse = {
-    val correlationId = buffer.getInt
+    val correlationId = buffer.getInt//请求的序号ID
     val brokerCount = buffer.getInt
     val brokers = (0 until brokerCount).map(_ => Broker.readFrom(buffer))
     val brokerMap = brokers.map(b => (b.id, b)).toMap

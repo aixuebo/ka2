@@ -82,10 +82,11 @@ object ClientUtils extends Logging{
 
   /**
    * Used by a non-producer client to send a metadata request
-   * @param topics The topics for which the metadata needs to be fetched
-   * @param brokers The brokers in the cluster as configured on the client
-   * @param clientId The client's identifier
+   * @param topics The topics for which the metadata needs to be fetched 准备获取这些topic元数据
+   * @param brokers The brokers in the cluster as configured on the client 节点集合
+   * @param clientId The client's identifier 客户端ID
    * @return topic metadata response
+   * 获取topic的元数据
    */
   def fetchTopicMetadata(topics: Set[String], brokers: Seq[Broker], clientId: String, timeoutMs: Int,
                          correlationId: Int = 0): TopicMetadataResponse = {
