@@ -96,6 +96,7 @@ class SimpleConsumer(val host: String,//broker的host和端口
     }
   }
 
+  //获取topic元数据内容
   def send(request: TopicMetadataRequest): TopicMetadataResponse = {
     val response = sendRequest(request)
     TopicMetadataResponse.readFrom(response.buffer)

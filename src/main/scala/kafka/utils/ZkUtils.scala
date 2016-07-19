@@ -738,7 +738,7 @@ controller_epoch节点的值是一个数字,kafka集群中第一个broker第一�
   /**
    * 1.getPartitionAssignmentForTopics(zkClient, topics) 读取/brokers/topics/${topic}的内容{partitions:{"1":[11,12,14],"2":[11,16,19]} } 含义是该topic中有两个partition,分别是1和2,每一个partition在哪些brokerId存储
    *   返回   Map,key是topic,value的key是该topic的partition,value是该partition对应的brokerId集合
-   * 返回key是topic,value是该topic对应的partition集合.并且partition集合是按照顺序排好序l
+   * 2.返回key是topic,value是该topic对应的partition集合.并且partition集合是按照顺序排好序l
    */
   def getPartitionsForTopics(zkClient: ZkClient, topics: Seq[String]): mutable.Map[String, Seq[Int]] = {
     getPartitionAssignmentForTopics(zkClient, topics).map { topicAndPartitionMap =>
@@ -861,7 +861,7 @@ controller_epoch节点的值是一个数字,kafka集群中第一个broker第一�
     //获取该group下所有的消费者,读取/consumers/${group}/ids的子节点集合,即该消费组里面的消费者集合
     val consumers = getChildrenParentMayNotExist(zkClient, dirs.consumerRegistryDir)
     
-    //key是topic,value是该topic消费的ConsumerThreadId集合
+    //key是topic,value是该topic所有消费的ConsumerThreadId集合
     val consumersPerTopicMap = new mutable.HashMap[String, List[ConsumerThreadId]]
     for (consumer <- consumers) {//循环每一个消费者
       //获取该消费者可以消费哪些topic,以及有多少个线程可以去消费该topic

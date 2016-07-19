@@ -28,13 +28,13 @@ case class OffsetAndMetadata(offset: Long,
 }
 
 object OffsetAndMetadata {
-  val InvalidOffset: Long = -1L
-  val NoMetadata: String = ""
+  val InvalidOffset: Long = -1L//默认非法的序号
+  val NoMetadata: String = ""//默认错误描述信息
   val InvalidTime: Long = -1L
 }
 
 /**
- * 记录offset偏移量以及描述信息  以及异常原因
+ * 记录offset偏移量以及描述信息以及异常状态码
  */
 case class OffsetMetadataAndError(offset: Long,
                                   metadata: String = OffsetAndMetadata.NoMetadata,

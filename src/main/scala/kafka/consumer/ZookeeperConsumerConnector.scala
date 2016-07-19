@@ -239,7 +239,7 @@ d.客户端再次向新的broker发送请求,返回BlockingChannel对象
 
     val topicCount = TopicCount.constructTopicCount(consumerIdString, topicCountMap) //StaticTopicCount
 
-    //返回HashMap[String, Set[ConsumerThreadId]] key是topic,value是该topic上多个线程ID可以读取topic信息
+    //返回HashMap[String, Set[ConsumerThreadId]] key是topic,value是该topic上多个线程对象,参数要求该topic几个线程,返回的value的set就是几个ConsumerThreadId对象
     val topicThreadIds = topicCount.getConsumerThreadIdsPerTopic
 
     // make a list of (queue,stream) pairs, one pair for each threadId
@@ -250,6 +250,16 @@ d.客户端再次向新的broker发送请求,返回BlockingChannel对象
      * 
      * eg:读取topic:test1,2个线程,读取topic:test2,3个线程
      * 最终返回List包含5个元组
+     *
+     * 解释:
+     * 1.topicThreadIds.values 表示[ Set[ConsumerThreadId],Set[ConsumerThreadId],... ]
+     * 2.map函数表示对任意一个元素Set[ConsumerThreadId]都执行该map函数处理
+     * 3.threadIdSet.map()表示对一个ConsumerThreadId进行处理
+     *   处理成元祖(queue, stream),即一个ConsumerThreadId线程对应一个LinkedBlockingQueue[FetchedDataChunk]对象,以及该队列的处理流
+     * 4.因此3返回值是set<(queue, stream)>，即(queue, stream)元祖集合
+     * 5.topicThreadIds.values.map的结果就是Set<set<(queue, stream)>,set<(queue, stream)>>,即每一天topic都拥有一个集合元祖set<(queue, stream)>,用于处理该topic的信息,集合的元素表示一个线程的队列和消费者
+     * 6.最后flatten,表示只要元祖Set<(queue, stream),(queue, stream),(queue, stream),(queue, stream)..> size的大小就是每一个topic的线程数量之和,比如topic1有3个线程,topic2有2个线程,结果就是5个元祖
+     * 7.toList 表示把6的set转换成list结果
      */
     val queuesAndStreams = topicThreadIds.values.map(threadIdSet =>
       threadIdSet.map(_ => {
@@ -261,8 +271,8 @@ d.客户端再次向新的broker发送请求,返回BlockingChannel对象
     ).flatten.toList
 
     val dirs = new ZKGroupDirs(config.groupId)
-    registerConsumerInZK(dirs, consumerIdString, topicCount)
-    reinitializeConsumer(topicCount, queuesAndStreams)
+    registerConsumerInZK(dirs, consumerIdString, topicCount)//将该消费者消费哪些topic写入到zookeeper中
+    reinitializeConsumer(topicCount, queuesAndStreams)//分配消费者
 
     loadBalancerListener.kafkaMessageAndMetadataStreams.asInstanceOf[Map[String, List[KafkaStream[K,V]]]]
   }
@@ -419,9 +429,13 @@ d.客户端再次向新的broker发送请求,返回BlockingChannel对象
    */
   def commitOffsets { commitOffsets(true) }
 
+  /**
+   *读取zookeeper上该topic-partition存储的消费到哪个序号了
+   * 返回(TopicAndPartition OffsetMetadataAndError) 元祖
+   */
   private def fetchOffsetFromZooKeeper(topicPartition: TopicAndPartition) = {
     val dirs = new ZKGroupTopicDirs(config.groupId, topicPartition.topic)
-    val offsetString = readDataMaybeNull(zkClient, dirs.consumerOffsetDir + "/" + topicPartition.partition)._1
+    val offsetString = readDataMaybeNull(zkClient, dirs.consumerOffsetDir + "/" + topicPartition.partition)._1 //获得zookeeper上存储的序号
     offsetString match {
       case Some(offsetStr) => (topicPartition, OffsetMetadataAndError(offsetStr.toLong, OffsetAndMetadata.NoMetadata, ErrorMapping.NoError))
       case None => (topicPartition, OffsetMetadataAndError.NoOffset)
@@ -565,7 +579,7 @@ d.客户端再次向新的broker发送请求,返回BlockingChannel对象
     //创建消费者组向多个线程去分配partition的策略
     private val partitionAssignor = PartitionAssignor.createInstance(config.partitionAssignmentStrategy)
 
-    private var isWatcherTriggered = false
+    private var isWatcherTriggered = false//true说明子节点有变化
     private val lock = new ReentrantLock
     private val cond = lock.newCondition()
 
@@ -604,6 +618,7 @@ d.客户端再次向新的broker发送请求,返回BlockingChannel对象
     }
     watcherExecutorThread.start()
 
+    //说明子节点有变化
     @throws(classOf[Exception])
     def handleChildChange(parentPath : String, curChilds : java.util.List[String]) {
       rebalanceEventTriggered()
@@ -704,6 +719,9 @@ d.客户端再次向新的broker发送请求,返回BlockingChannel对象
         releasePartitionOwnership(topicRegistry)
 
         val assignmentContext = new AssignmentContext(group, consumerIdString, config.excludeInternalTopics, zkClient)
+        /**
+         * 返回Map[TopicAndPartition, ConsumerThreadId],表示该消费者要消费哪个topic-partition,在哪个线程上去消费
+         */
         val partitionOwnershipDecision = partitionAssignor.assign(assignmentContext)
         val currentTopicRegistry = new Pool[String, Pool[Int, PartitionTopicInfo]](
           valueFactory = Some((topic: String) => new Pool[Int, PartitionTopicInfo]))
@@ -865,7 +883,9 @@ d.客户端再次向新的broker发送请求,返回BlockingChannel对象
   }
 
   /**
-   * @queuesAndStreams 表示一个元组队列,没一个元组分别对应一个topic的一个线程
+   * @topicCount 表示每一个topic对应多个线程
+   * @queuesAndStreams 每一个元素表示一个线程的队列和消费流
+   * 分配消费者
    */
   private def reinitializeConsumer[K,V](
       topicCount: TopicCount,
@@ -892,6 +912,7 @@ d.客户端再次向新的broker发送请求,返回BlockingChannel对象
     val topicStreamsMap = loadBalancerListener.kafkaMessageAndMetadataStreams
 
     // map of {topic -> Set(thread-1, thread-2, ...)}
+    //为每一个topic,映射一个set集合,set里面的元素对应一个线程
     val consumerThreadIdsPerTopic: Map[String, Set[ConsumerThreadId]] =
       topicCount.getConsumerThreadIdsPerTopic
 
@@ -900,10 +921,11 @@ d.客户端再次向新的broker发送请求,返回BlockingChannel对象
         /*
          * Wild-card consumption streams share the same queues, so we need to
          * duplicate the list for the subsequent zip operation.
+         * 动态的,因此处理动态逻辑
          */
         (1 to consumerThreadIdsPerTopic.keySet.size).flatMap(_ => queuesAndStreams).toList
       case statTopicCount: StaticTopicCount =>
-        queuesAndStreams
+        queuesAndStreams//静态的话,就是参数为每一个topic分配的线程
     }
 
     val topicThreadIds = consumerThreadIdsPerTopic.map {
@@ -911,14 +933,20 @@ d.客户端再次向新的broker发送请求,返回BlockingChannel对象
         threadIds.map((topic, _))
     }.flatten
 
+    //要求topic的所有线程数量与allQueuesAndStreams所有的队列数量相同
     require(topicThreadIds.size == allQueuesAndStreams.size,
       "Mismatch between thread ID count (%d) and queue count (%d)"
       .format(topicThreadIds.size, allQueuesAndStreams.size))
+
+      /**
+       *返回值[(String, ConsumerThreadId),(LinkedBlockingQueue[FetchedDataChunk],KafkaStream[K,V]),..]
+       * 每一个元素是(String, ConsumerThreadId),(LinkedBlockingQueue[FetchedDataChunk],KafkaStream[K,V])
+       */
     val threadQueueStreamPairs = topicThreadIds.zip(allQueuesAndStreams)
 
     threadQueueStreamPairs.foreach(e => {
-      val topicThreadId = e._1
-      val q = e._2._1
+      val topicThreadId = e._1//(String, ConsumerThreadId)
+      val q = e._2._1//LinkedBlockingQueue[FetchedDataChunk]
       topicThreadIdAndQueues.put(topicThreadId, q)
       debug("Adding topicThreadId %s and queue %s to topicThreadIdAndQueues data structure".format(topicThreadId, q.toString))
       newGauge(
@@ -932,6 +960,10 @@ d.客户端再次向新的broker发送请求,返回BlockingChannel对象
       )
     })
 
+      /**
+       * 按照topic分组
+       * _._1._1 表示(String, ConsumerThreadId)._1 ,最终就是String的topic
+       */
     val groupedByTopic = threadQueueStreamPairs.groupBy(_._1._1)
     groupedByTopic.foreach(e => {
       val topic = e._1

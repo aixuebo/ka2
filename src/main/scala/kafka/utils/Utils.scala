@@ -477,6 +477,7 @@ object Utils extends Logging {
    * Create a circular (looping) iterator over a collection.
    * @param coll An iterable over the underlying collection.
    * @return A circular iterator over the collection.
+   *  for里面有;表示for 循环里面套for循环
    */
   def circularIterator[T](coll: Iterable[T]) = {
     val stream: Stream[T] =
