@@ -612,6 +612,11 @@ object Utils extends Logging {
 
   /**
    * Returns a list of duplicated items
+   * 找到集合中有重复的key的集合
+   * 比如参数集合是 1、2、2、4、5、4,则返回2和4
+   *
+   * 逻辑:
+   * 按照每一个key进行分组,分组后是每一个key有多少个元素,然后过滤掉元素数量>1的,就是重复的,返回重复的key集合即可
    */
   def duplicates[T](s: Traversable[T]): Iterable[T] = {
     s.groupBy(identity)

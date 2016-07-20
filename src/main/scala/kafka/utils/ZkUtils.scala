@@ -106,16 +106,18 @@ controller_epoch节点的值是一个数字,kafka集群中第一个broker第一�
   
 /**
 /admin/reassign_partitions内容
-{
-  "version": 1,
-  "partitions":
-     [
-        {
-            "topic": "Foo",
-            "partition": 1,
-            "replicas": [0, 1, 3]
-        }
-     ]            
+   生成格式:表示topic-partition被分配到哪些节点进行备份
+  {
+  version:1,
+ "partitions":
+  [
+    {"topic": "topic1", "partition": "0",replicas:[1,2,3]},
+    {"topic": "topic1", "partition": "1",replicas:[1,2,3]},
+    {"topic": "topic1", "partition": "2",replicas:[1,2,3]},
+
+    {"topic": "topic2", "partition": "0",replicas:[1,2,3]},
+    {"topic": "topic2", "partition": "1",replicas:[1,2,3]},
+  ]
 }
  */
  //参见KafkaController中PartitionsReassignedListener事件
@@ -165,7 +167,7 @@ controller_epoch节点的值是一个数字,kafka集群中第一个broker第一�
     getTopicPath(topic) + "/partitions"
   }
 
-  // /config/topics/${topic}
+  // /config/topics/${topic} 记录该topic的配置信息
   def getTopicConfigPath(topic: String): String =
     TopicConfigPath + "/" + topic
 
@@ -765,15 +767,32 @@ controller_epoch节点的值是一个数字,kafka集群中第一个broker第一�
   }
 
   // Parses without deduplicating keys so the the data can be checked before allowing reassignment to proceed
+  /**
+   * 格式
+{
+  version:1,
+ "partitions":
+  [
+    {"topic": "topic1", "partition": "0",replicas:[1,2,3]},
+    {"topic": "topic1", "partition": "1",replicas:[1,2,3]},
+    {"topic": "topic1", "partition": "2",replicas:[1,2,3]},
+
+    {"topic": "topic2", "partition": "0",replicas:[1,2,3]},
+    {"topic": "topic2", "partition": "1",replicas:[1,2,3]},
+  ]
+}
+   * @param jsonData
+   * @return 返回值是要将topic-partition分配到哪些节点去做备份
+   */
   def parsePartitionReassignmentDataWithoutDedup(jsonData: String): Seq[(TopicAndPartition, Seq[Int])] = {
     Json.parseFull(jsonData) match {
       case Some(m) =>
-        m.asInstanceOf[Map[String, Any]].get("partitions") match {
+        m.asInstanceOf[Map[String, Any]].get("partitions") match {//解析partitions属性
           case Some(partitionsSeq) =>
             partitionsSeq.asInstanceOf[Seq[Map[String, Any]]].map(p => {
-              val topic = p.get("topic").get.asInstanceOf[String]
-              val partition = p.get("partition").get.asInstanceOf[Int]
-              val newReplicas = p.get("replicas").get.asInstanceOf[Seq[Int]]
+              val topic = p.get("topic").get.asInstanceOf[String]//获取topic
+              val partition = p.get("partition").get.asInstanceOf[Int]//获取partition
+              val newReplicas = p.get("replicas").get.asInstanceOf[Seq[Int]]//获取要分配到哪些节点去做备份
               TopicAndPartition(topic, partition) -> newReplicas
             })
           case None =>
@@ -784,10 +803,24 @@ controller_epoch节点的值是一个数字,kafka集群中第一个broker第一�
     }
   }
 
+  //返回值是要将topic-partition分配到哪些节点去做备份
   def parsePartitionReassignmentData(jsonData: String): Map[TopicAndPartition, Seq[Int]] = {
     parsePartitionReassignmentDataWithoutDedup(jsonData).toMap
   }
 
+  /**
+   * 格式
+      {
+  version:1,
+ "topics":
+  [
+    {"topic": "topic1"},
+     {"topic": "topic2"},
+     {"topic": "topic3"}
+  ]
+}
+   返回topic集合Seq[String]
+   */
   def parseTopicsData(jsonData: String): Seq[String] = {
     var topics = List.empty[String]
     Json.parseFull(jsonData) match {
@@ -806,6 +839,21 @@ controller_epoch节点的值是一个数字,kafka集群中第一个broker第一�
     topics
   }
 
+  /**
+   生成格式:表示topic-partition被分配到哪些节点进行备份
+  {
+  version:1,
+ "partitions":
+  [
+    {"topic": "topic1", "partition": "0",replicas:[1,2,3]},
+    {"topic": "topic1", "partition": "1",replicas:[1,2,3]},
+    {"topic": "topic1", "partition": "2",replicas:[1,2,3]},
+
+    {"topic": "topic2", "partition": "0",replicas:[1,2,3]},
+    {"topic": "topic2", "partition": "1",replicas:[1,2,3]},
+  ]
+}
+   */
   def getPartitionReassignmentZkData(partitionsToBeReassigned: Map[TopicAndPartition, Seq[Int]]): String = {
     Json.encode(Map("version" -> 1, "partitions" -> partitionsToBeReassigned.map(e => Map("topic" -> e._1.topic, "partition" -> e._1.partition,
                                                                                           "replicas" -> e._2))))

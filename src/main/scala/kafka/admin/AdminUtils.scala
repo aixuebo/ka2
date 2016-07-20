@@ -161,7 +161,15 @@ object AdminUtils extends Logging {
   
   def topicExists(zkClient: ZkClient, topic: String): Boolean = 
     zkClient.exists(ZkUtils.getTopicPath(topic))
-    
+
+  /**
+   * 创建一个topic
+   * @param zkClient
+   * @param topic topic名称
+   * @param partitions 设置该topic有多少个partition
+   * @param replicationFactor 设置topic的每一个partition要保留多少个备份
+   * @param topicConfig 设置额外的配置信息
+   */
   def createTopic(zkClient: ZkClient,
                   topic: String,
                   partitions: Int, 
@@ -219,7 +227,7 @@ object AdminUtils extends Logging {
    * @param topic: The topic for which configs are being changed
    * @param configs: The final set of configs that will be applied to the topic. If any new configs need to be added or
    *                 existing configs need to be deleted, it should be done prior to invoking this API
-   *
+   *  将topic的配置信息写入到zookeeper下
    */
   def changeTopicConfig(zkClient: ZkClient, topic: String, configs: Properties) {
     if(!topicExists(zkClient, topic))
@@ -228,10 +236,11 @@ object AdminUtils extends Logging {
     // remove the topic overrides
     LogConfig.validate(configs)
 
-    // write the new config--may not exist if there were previously no overrides
+    // write the new config--may not exist if there were previously no overrides将配置信息写入到zookeeper中
     writeTopicConfig(zkClient, topic, configs)
     
     // create the change notification
+    //创建更改配置信息的zookeeper节点 /config/changes/config_change_序号,内容是topic名称
     zkClient.createPersistentSequential(ZkUtils.TopicConfigChangesPath + "/" + TopicConfigChangeZnodePrefix, Json.encode(topic))
   }
   
@@ -243,6 +252,8 @@ object AdminUtils extends Logging {
       import JavaConversions._
       config
     }
+
+    //对/config/topics/${topic}节点内容进行更新
     val map = Map("version" -> 1, "config" -> configMap)
     ZkUtils.updatePersistentPath(zkClient, ZkUtils.getTopicConfigPath(topic), Json.encode(map))
   }
@@ -253,7 +264,7 @@ object AdminUtils extends Logging {
    * 内容格式:{version:1,config:{key=value,key=value}}
    */
   def fetchTopicConfig(zkClient: ZkClient, topic: String): Properties = {
-    val str: String = zkClient.readData(ZkUtils.getTopicConfigPath(topic), true)//获取该topic路径对应的数据
+    val str: String = zkClient.readData(ZkUtils.getTopicConfigPath(topic), true)//获取该topic路径对应的数据,即记录该topic的配置信息
     val props = new Properties()
     if(str != null) {
       Json.parseFull(str) match {
