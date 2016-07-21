@@ -39,15 +39,19 @@ object AdminUtils extends Logging {
   val TopicConfigChangeZnodePrefix = "config_change_"
 
   /**
-   * There are 2 goals of replica assignment:
-   * 1. Spread the replicas evenly among brokers.
-   * 2. For partitions assigned to a particular broker, their other replicas are spread over the other brokers.
+   * There are 2 goals of replica assignment:这有两个重新分配备份节点的目标
+   * 1. Spread the replicas evenly among brokers.保证在节点间均匀传播备份数据
+   * 2. For partitions assigned to a particular broker, their other replicas are spread over the other brokers.将partition的备份分配到指定的节点上
    *
-   * To achieve this goal, we:
+   * To achieve this goal, we:为了完成这个目标,我们做了以下的事儿
    * 1. Assign the first replica of each partition by round-robin, starting from a random position in the broker list.
+   * 每一个partition的第一个备份通过轮训方式被分配到节点上,开始位置从节点集合中随机产生
    * 2. Assign the remaining replicas of each partition with an increasing shift.
+   * 每一个partition剩下的备份是通过增长的方式被分配
    *
    * Here is an example of assigning
+   * 例如有5个节点
+   *
    * broker-0  broker-1  broker-2  broker-3  broker-4
    * p0        p1        p2        p3        p4       (1st replica)
    * p5        p6        p7        p8        p9       (1st replica)
@@ -55,12 +59,14 @@ object AdminUtils extends Logging {
    * p8        p9        p5        p6        p7       (2nd replica)
    * p3        p4        p0        p1        p2       (3nd replica)
    * p7        p8        p9        p5        p6       (3nd replica)
+   * 重方法的意义 新为topic-partition分配备份节点
+   * 返回值就是每一个partition分配到哪些节点上了Map[Int, Seq[Int]]
    */
-  def assignReplicasToBrokers(brokerList: Seq[Int],
-                              nPartitions: Int,
-                              replicationFactor: Int,
-                              fixedStartIndex: Int = -1,
-                              startPartitionId: Int = -1)
+  def assignReplicasToBrokers(brokerList: Seq[Int],//目标移动到这些节点上去备份
+                              nPartitions: Int,//目前该topic有多少个partition
+                              replicationFactor: Int,//目前该topic的第一个partition有多少个备份
+                              fixedStartIndex: Int = -1,//固定开始位置
+                              startPartitionId: Int = -1)//从第几个partition开始分配
   : Map[Int, Seq[Int]] = {
     if (nPartitions <= 0)
       throw new AdminOperationException("number of partitions must be larger than 0")
@@ -68,18 +74,19 @@ object AdminUtils extends Logging {
       throw new AdminOperationException("replication factor must be larger than 0")
     if (replicationFactor > brokerList.size)
       throw new AdminOperationException("replication factor: " + replicationFactor +
-        " larger than available brokers: " + brokerList.size)
-    val ret = new mutable.HashMap[Int, List[Int]]()
-    val startIndex = if (fixedStartIndex >= 0) fixedStartIndex else rand.nextInt(brokerList.size)
-    var currentPartitionId = if (startPartitionId >= 0) startPartitionId else 0
+        " larger than available brokers: " + brokerList.size)//不允许备份数量>节点数量,导致一个节点分配多个备份是不允许的
 
-    var nextReplicaShift = if (fixedStartIndex >= 0) fixedStartIndex else rand.nextInt(brokerList.size)
-    for (i <- 0 until nPartitions) {
+    val ret = new mutable.HashMap[Int, List[Int]]()
+    val startIndex = if (fixedStartIndex >= 0) fixedStartIndex else rand.nextInt(brokerList.size)//随机产生一个开始位置还是固定开始位置
+    var currentPartitionId = if (startPartitionId >= 0) startPartitionId else 0//设置当前位置
+
+    var nextReplicaShift = if (fixedStartIndex >= 0) fixedStartIndex else rand.nextInt(brokerList.size) //从固定或者随机产生一个备份节点
+    for (i <- 0 until nPartitions) {//循环每一个partition
       if (currentPartitionId > 0 && (currentPartitionId % brokerList.size == 0))
         nextReplicaShift += 1
       val firstReplicaIndex = (currentPartitionId + startIndex) % brokerList.size
-      var replicaList = List(brokerList(firstReplicaIndex))
-      for (j <- 0 until replicationFactor - 1)
+      var replicaList = List(brokerList(firstReplicaIndex))//已经确定了第一个备份节点
+      for (j <- 0 until replicationFactor - 1)//确定剩余的备份节点
         replicaList ::= brokerList(replicaIndex(firstReplicaIndex, nextReplicaShift, j, brokerList.size))
       ret.put(currentPartitionId, replicaList.reverse)
       currentPartitionId = currentPartitionId + 1
@@ -97,42 +104,60 @@ object AdminUtils extends Logging {
   * @param replicaAssignmentStr Manual replica assignment
   * @param checkBrokerAvailable Ignore checking if assigned replica broker is available. Only used for testing
   * @param config Pre-existing properties that should be preserved
+  * 为topic添加partition
   */
   def addPartitions(zkClient: ZkClient,
-                    topic: String,
-                    numPartitions: Int = 1,
-                    replicaAssignmentStr: String = "",
+                    topic: String,//topic名称
+                    numPartitions: Int = 1,//partiton数量,默认是1个
+                    replicaAssignmentStr: String = "",//手动为partition添加备份到哪些节点上
                     checkBrokerAvailable: Boolean = true,
                     config: Properties = new Properties) {
-    val existingPartitionsReplicaList = ZkUtils.getReplicaAssignmentForTopics(zkClient, List(topic))
+    val existingPartitionsReplicaList = ZkUtils.getReplicaAssignmentForTopics(zkClient, List(topic)) //返回值 Map[TopicAndPartition, Seq[Int]] key是topic-partition,value是该partition都在哪些节点有备份
     if (existingPartitionsReplicaList.size == 0)
-      throw new AdminOperationException("The topic %s does not exist".format(topic))
+      throw new AdminOperationException("The topic %s does not exist".format(topic))//topic不存在是不允许的
 
-    val existingReplicaList = existingPartitionsReplicaList.head._2
-    val partitionsToAdd = numPartitions - existingPartitionsReplicaList.size
+    val existingReplicaList = existingPartitionsReplicaList.head._2//获取第一个topic-partition对应的节点备份集合Seq[Int]
+    val partitionsToAdd = numPartitions - existingPartitionsReplicaList.size//返回要添加多少个partition
     if (partitionsToAdd <= 0)
-      throw new AdminOperationException("The number of partitions for a topic can only be increased")
+      throw new AdminOperationException("The number of partitions for a topic can only be increased")//topic-partition的数量不允许<=0
 
     // create the new partition replication list
-    val brokerList = ZkUtils.getSortedBrokerList(zkClient)
+    val brokerList = ZkUtils.getSortedBrokerList(zkClient) //获取所有的节点集合
+
+   //返回值就是每一个partition分配到哪些节点上了Map[Int, Seq[Int]]
     val newPartitionReplicaList = if (replicaAssignmentStr == null || replicaAssignmentStr == "")
+     /**
+      * 参数集合
+      * 在所有的节点上
+      * 分配partitionsToAdd个partition
+      * 每一个partition需要existingReplicaList.size个备份
+      * 第一个partition的第一个备份在哪个节点上
+      * 现在已经存在的每一个topic-partition的备份的个数
+      *
+      * 返回值就是每一个partition分配到哪些节点上了Map[Int, Seq[Int]]
+      */
       AdminUtils.assignReplicasToBrokers(brokerList, partitionsToAdd, existingReplicaList.size, existingReplicaList.head, existingPartitionsReplicaList.size)
     else
+   //手动分配
       getManualReplicaAssignment(replicaAssignmentStr, brokerList.toSet, existingPartitionsReplicaList.size, checkBrokerAvailable)
 
-    // check if manual assignment has the right replication factor
+    // check if manual assignment has the right replication factor 分配有问题,没有达到备份数量
     val unmatchedRepFactorList = newPartitionReplicaList.values.filter(p => (p.size != existingReplicaList.size))
     if (unmatchedRepFactorList.size != 0)
       throw new AdminOperationException("The replication factor in manual replication assignment " +
         " is not equal to the existing replication factor for the topic " + existingReplicaList.size)
 
+   //合并新老的partition和对应的备份节点集合
     info("Add partition list for %s is %s".format(topic, newPartitionReplicaList))
     val partitionReplicaList = existingPartitionsReplicaList.map(p => p._1.partition -> p._2)
     // add the new list
     partitionReplicaList ++= newPartitionReplicaList
+
+   //合并后的写入到zookeeper中
     AdminUtils.createOrUpdateTopicPartitionAssignmentPathInZK(zkClient, topic, partitionReplicaList, config, true)
   }
 
+  //手动为partition添加备份到哪些节点上
   def getManualReplicaAssignment(replicaAssignmentList: String, availableBrokerList: Set[Int], startPartitionId: Int, checkBrokerAvailable: Boolean = true): Map[Int, List[Int]] = {
     var partitionList = replicaAssignmentList.split(",")
     val ret = new mutable.HashMap[Int, List[Int]]()
@@ -179,38 +204,47 @@ object AdminUtils extends Logging {
     val replicaAssignment = AdminUtils.assignReplicasToBrokers(brokerList, partitions, replicationFactor)
     AdminUtils.createOrUpdateTopicPartitionAssignmentPathInZK(zkClient, topic, replicaAssignment, topicConfig)
   }
-                  
+
+  /**
+   * 创建或者更新每一个topic对应的partition在哪些节点上去备份,并且写入到zookeeper中
+   */
   def createOrUpdateTopicPartitionAssignmentPathInZK(zkClient: ZkClient,
-                                                     topic: String,
-                                                     partitionReplicaAssignment: Map[Int, Seq[Int]],
-                                                     config: Properties = new Properties,
-                                                     update: Boolean = false) {
+                                                     topic: String,//topic
+                                                     partitionReplicaAssignment: Map[Int, Seq[Int]],//每一个partition对应在哪个节点上有备份
+                                                     config: Properties = new Properties,//topic的配置信息
+                                                     update: Boolean = false) {//true表示更新
     // validate arguments
     Topic.validate(topic)
     LogConfig.validate(config)
-    require(partitionReplicaAssignment.values.map(_.size).toSet.size == 1, "All partitions should have the same number of replicas.")
+    require(partitionReplicaAssignment.values.map(_.size).toSet.size == 1, "All partitions should have the same number of replicas.")//校验所有的partition应该有相同的备份数量
 
-    val topicPath = ZkUtils.getTopicPath(topic)
+    val topicPath = ZkUtils.getTopicPath(topic) ///brokers/topics/${topic}
     if(!update && zkClient.exists(topicPath))
       throw new TopicExistsException("Topic \"%s\" already exists.".format(topic))
-    partitionReplicaAssignment.values.foreach(reps => require(reps.size == reps.toSet.size, "Duplicate replica assignment found: "  + partitionReplicaAssignment))
+    partitionReplicaAssignment.values.foreach(reps => require(reps.size == reps.toSet.size, "Duplicate replica assignment found: "  + partitionReplicaAssignment))//确保每一个partition分配的备份节点集合中不允许有重复的节点ID
     
     // write out the config if there is any, this isn't transactional with the partition assignments
+    //将topic的配置信息写入到zookeeper中
     writeTopicConfig(zkClient, topic, config)
     
     // create the partition assignment
     writeTopicPartitionAssignment(zkClient, topic, partitionReplicaAssignment, update)
   }
-  
+
+  /**
+   * 创建或者更新每一个topic对应的partition在哪些节点上去备份,并且写入到zookeeper中
+   * @param replicaAssignment 每一个partition对应在哪个节点上有备份
+   * @param update true表示更新
+   */
   private def writeTopicPartitionAssignment(zkClient: ZkClient, topic: String, replicaAssignment: Map[Int, Seq[Int]], update: Boolean) {
     try {
-      val zkPath = ZkUtils.getTopicPath(topic)
+      val zkPath = ZkUtils.getTopicPath(topic) ///brokers/topics/${topic}
       val jsonPartitionData = ZkUtils.replicaAssignmentZkData(replicaAssignment.map(e => (e._1.toString -> e._2)))
 
-      if (!update) {
+      if (!update) {//创建
         info("Topic creation " + jsonPartitionData.toString)
         ZkUtils.createPersistentPath(zkClient, zkPath, jsonPartitionData)
-      } else {
+      } else {//更新
         info("Topic update " + jsonPartitionData.toString)
         ZkUtils.updatePersistentPath(zkClient, zkPath, jsonPartitionData)
       }
@@ -246,6 +280,7 @@ object AdminUtils extends Logging {
   
   /**
    * Write out the topic config to zk, if there is any
+   * 写入一个topic的配置信息到zookeeper中
    */
   private def writeTopicConfig(zkClient: ZkClient, topic: String, config: Properties) {
     val configMap: mutable.Map[String, String] = {
@@ -296,15 +331,16 @@ object AdminUtils extends Logging {
     topics.map(topic => fetchTopicMetadataFromZk(topic, zkClient, cachedBrokerInfo))
   }
 
+  //抓去topic的所有元数据信息
   private def fetchTopicMetadataFromZk(topic: String, zkClient: ZkClient, cachedBrokerInfo: mutable.HashMap[Int, Broker]): TopicMetadata = {
-    if(ZkUtils.pathExists(zkClient, ZkUtils.getTopicPath(topic))) {
-      val topicPartitionAssignment = ZkUtils.getPartitionAssignmentForTopics(zkClient, List(topic)).get(topic).get
-      val sortedPartitions = topicPartitionAssignment.toList.sortWith((m1, m2) => m1._1 < m2._1)
+    if(ZkUtils.pathExists(zkClient, ZkUtils.getTopicPath(topic))) {//首先topic必须存在
+      val topicPartitionAssignment = ZkUtils.getPartitionAssignmentForTopics(zkClient, List(topic)).get(topic).get //返回key是topic,value的key是该topic的partition,value是该partition对应的brokerId集合
+      val sortedPartitions = topicPartitionAssignment.toList.sortWith((m1, m2) => m1._1 < m2._1)//对partition集合进行排序,collection.Map[Int, Seq[Int] 返回的key 是partition,value是该partition所在节点集合
       val partitionMetadata = sortedPartitions.map { partitionMap =>
-        val partition = partitionMap._1
-        val replicas = partitionMap._2
-        val inSyncReplicas = ZkUtils.getInSyncReplicasForPartition(zkClient, topic, partition)
-        val leader = ZkUtils.getLeaderForPartition(zkClient, topic, partition)
+        val partition = partitionMap._1//partition序号
+        val replicas = partitionMap._2//备份节点集合
+        val inSyncReplicas = ZkUtils.getInSyncReplicasForPartition(zkClient, topic, partition)//获取该partition的同步集合
+        val leader = ZkUtils.getLeaderForPartition(zkClient, topic, partition)//获取该partition的leader节点
         debug("replicas = " + replicas + ", in sync replicas = " + inSyncReplicas + ", leader = " + leader)
 
         var leaderInfo: Option[Broker] = None
@@ -314,15 +350,15 @@ object AdminUtils extends Logging {
           leaderInfo = leader match {
             case Some(l) =>
               try {
-                Some(getBrokerInfoFromCache(zkClient, cachedBrokerInfo, List(l)).head)
+                Some(getBrokerInfoFromCache(zkClient, cachedBrokerInfo, List(l)).head)//获取leader所在的节点对象
               } catch {
-                case e: Throwable => throw new LeaderNotAvailableException("Leader not available for partition [%s,%d]".format(topic, partition), e)
+                case e: Throwable => throw new LeaderNotAvailableException("Leader not available for partition [%s,%d]".format(topic, partition), e)//该partition不可用
               }
-            case None => throw new LeaderNotAvailableException("No leader exists for partition " + partition)
+            case None => throw new LeaderNotAvailableException("No leader exists for partition " + partition)//该partition没有leader节点
           }
           try {
-            replicaInfo = getBrokerInfoFromCache(zkClient, cachedBrokerInfo, replicas.map(id => id.toInt))
-            isrInfo = getBrokerInfoFromCache(zkClient, cachedBrokerInfo, inSyncReplicas)
+            replicaInfo = getBrokerInfoFromCache(zkClient, cachedBrokerInfo, replicas.map(id => id.toInt))//获取备份节点对象集合
+            isrInfo = getBrokerInfoFromCache(zkClient, cachedBrokerInfo, inSyncReplicas)//获取同步的节点对象集合
           } catch {
             case e: Throwable => throw new ReplicaNotAvailableException(e)
           }
@@ -347,16 +383,18 @@ object AdminUtils extends Logging {
     }
   }
 
+  //对已经获取的节点信息进行缓存,提高效率
   private def getBrokerInfoFromCache(zkClient: ZkClient,
-                                     cachedBrokerInfo: scala.collection.mutable.Map[Int, Broker],
-                                     brokerIds: Seq[Int]): Seq[Broker] = {
-    var failedBrokerIds: ListBuffer[Int] = new ListBuffer()
+                                     cachedBrokerInfo: scala.collection.mutable.Map[Int, Broker],//缓存的节点信息,节点ID对应节点对象
+                                     brokerIds: Seq[Int])//查找这些节点ID对应的Broker对象,可以优先从缓存中查找
+                                   : Seq[Broker] = {
+    var failedBrokerIds: ListBuffer[Int] = new ListBuffer()//加载失败的节点ID
     val brokerMetadata = brokerIds.map { id =>
-      val optionalBrokerInfo = cachedBrokerInfo.get(id)
+      val optionalBrokerInfo = cachedBrokerInfo.get(id)//是否缓存名字该节点ID
       optionalBrokerInfo match {
-        case Some(brokerInfo) => Some(brokerInfo) // return broker info from the cache
+        case Some(brokerInfo) => Some(brokerInfo) // return broker info from the cache 命中,则从缓存中获取该节点ID对应的节点
         case None => // fetch it from zookeeper
-          ZkUtils.getBrokerInfo(zkClient, id) match {
+          ZkUtils.getBrokerInfo(zkClient, id) match {//从zookeeper中获取该节点对象,并且加入到缓存中
             case Some(brokerInfo) =>
               cachedBrokerInfo += (id -> brokerInfo)
               Some(brokerInfo)

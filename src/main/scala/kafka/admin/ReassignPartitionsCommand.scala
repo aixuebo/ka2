@@ -84,6 +84,7 @@ object ReassignPartitionsCommand extends Logging {
     }
   }
 
+  //产生一个重新分配节点的配置的候选方案,但是不会去执行
   def generateAssignment(zkClient: ZkClient, opts: ReassignPartitionsCommandOptions) {
     //generate命令必须包含--topics-to-move-json-file and --broker-list两个配置
     if(!(opts.options.has(opts.topicsToMoveJsonFileOpt) && opts.options.has(opts.brokerListOpt)))
@@ -102,26 +103,38 @@ object ReassignPartitionsCommand extends Logging {
     //返回值 Map[TopicAndPartition, Seq[Int]] key是topic-partition,value是该partition都在哪些节点有备份
     val topicPartitionsToReassign = ZkUtils.getReplicaAssignmentForTopics(zkClient, topicsToReassign)
 
+    //最终重新分配后的结果 每一个topic-partition最终分配到哪些节点上去备份
     var partitionsToBeReassigned : Map[TopicAndPartition, Seq[Int]] = new mutable.HashMap[TopicAndPartition, List[Int]]()
     //按照topic分组,结果是Map[String,Map[TopicAndPartition, Seq[Int]]] 每一个topic的备份分布在哪些节点上
     val groupedByTopic = topicPartitionsToReassign.groupBy(tp => tp._1.topic)
     groupedByTopic.foreach { topicInfo =>
       val assignedReplicas = AdminUtils.assignReplicasToBrokers(brokerListToReassign, topicInfo._2.size,
-        topicInfo._2.head._2.size)
+        topicInfo._2.head._2.size)//topicInfo._2.size 表示该topic有多少个partition,topicInfo._2.head._2.size表示该topic第一个partition有多少个备份节点
+      //上面的方法返回值就是每一个partition分配到哪些节点上了Map[Int, Seq[Int]]
+
       partitionsToBeReassigned ++= assignedReplicas.map(replicaInfo => (TopicAndPartition(topicInfo._1, replicaInfo._1) -> replicaInfo._2))
     }
+
+    //获取当前topic-partition所在节点备份映射关系
     val currentPartitionReplicaAssignment = ZkUtils.getReplicaAssignmentForTopics(zkClient, partitionsToBeReassigned.map(_._1.topic).toSeq)
+
+    //打印现在和未来重新分配后,每一个topic-partition在哪些节点进行备份
     println("Current partition replica assignment\n\n%s"
       .format(ZkUtils.getPartitionReassignmentZkData(currentPartitionReplicaAssignment)))
     println("Proposed partition reassignment configuration\n\n%s".format(ZkUtils.getPartitionReassignmentZkData(partitionsToBeReassigned)))
   }
 
+  //执行重新分配备份节点
   def executeAssignment(zkClient: ZkClient, opts: ReassignPartitionsCommandOptions) {
     if(!opts.options.has(opts.reassignmentJsonFileOpt))
       CommandLineUtils.printUsageAndDie(opts.parser, "If --execute option is used, command must include --reassignment-json-file that was output " + "during the --generate option")
     val reassignmentJsonFile =  opts.options.valueOf(opts.reassignmentJsonFileOpt)
     val reassignmentJsonString = Utils.readFileAsString(reassignmentJsonFile)
+
+    //返回值Seq[(TopicAndPartition, Seq[Int])是要将topic-partition分配到哪些节点去做备份
     val partitionsToBeReassigned = ZkUtils.parsePartitionReassignmentDataWithoutDedup(reassignmentJsonString)
+
+    //一些列校验过程
     if (partitionsToBeReassigned.isEmpty)
       throw new AdminCommandFailedException("Partition reassignment data file %s is empty".format(reassignmentJsonFile))
     val duplicateReassignedPartitions = Utils.duplicates(partitionsToBeReassigned.map{ case(tp,replicas) => tp})
@@ -136,20 +149,26 @@ object ReassignPartitionsCommand extends Logging {
         .mkString(". ")
       throw new AdminCommandFailedException("Partition replica lists may not contain duplicate entries: %s".format(duplicatesMsg))
     }
+
+    //准备将topic-partition分配到哪些节点上去备份
     val reassignPartitionsCommand = new ReassignPartitionsCommand(zkClient, partitionsToBeReassigned.toMap)
     // before starting assignment, output the current replica assignment to facilitate rollback
+    //返回值 Map[TopicAndPartition, Seq[Int]] key是topic-partition,value是该partition都在哪些节点有备份
     val currentPartitionReplicaAssignment = ZkUtils.getReplicaAssignmentForTopics(zkClient, partitionsToBeReassigned.map(_._1.topic).toSeq)
     println("Current partition replica assignment\n\n%s\n\nSave this to use as the --reassignment-json-file option during rollback"
       .format(ZkUtils.getPartitionReassignmentZkData(currentPartitionReplicaAssignment)))
     // start the reassignment
-    if(reassignPartitionsCommand.reassignPartitions())
+    if(reassignPartitionsCommand.reassignPartitions())//真正执行分配
       println("Successfully started reassignment of partitions %s".format(ZkUtils.getPartitionReassignmentZkData(partitionsToBeReassigned.toMap)))
     else
       println("Failed to reassign partitions %s".format(partitionsToBeReassigned))
   }
 
+  //校验是不是这些topic-partition分配的备份节点,已经成功的分配完
+  //返回topic-partition对应的分配状态
   private def checkIfReassignmentSucceeded(zkClient: ZkClient, partitionsToBeReassigned: Map[TopicAndPartition, Seq[Int]])
   :Map[TopicAndPartition, ReassignmentStatus] = {
+    //返回zookeeper上为每一个topic-partition分配的新备份节点集合
     val partitionsBeingReassigned = ZkUtils.getPartitionsBeingReassigned(zkClient).mapValues(_.newReplicas)
     partitionsToBeReassigned.map { topicAndPartition =>
       (topicAndPartition._1, checkIfPartitionReassignmentSucceeded(zkClient, topicAndPartition._1,
@@ -159,13 +178,14 @@ object ReassignPartitionsCommand extends Logging {
 
   def checkIfPartitionReassignmentSucceeded(zkClient: ZkClient, topicAndPartition: TopicAndPartition,
                                             reassignedReplicas: Seq[Int],
-                                            partitionsToBeReassigned: Map[TopicAndPartition, Seq[Int]],
-                                            partitionsBeingReassigned: Map[TopicAndPartition, Seq[Int]]): ReassignmentStatus = {
+                                            partitionsToBeReassigned: Map[TopicAndPartition, Seq[Int]],//已经分发出去去备份的集合
+                                            partitionsBeingReassigned: Map[TopicAndPartition, Seq[Int]]): ReassignmentStatus = {//正在备份中的
     val newReplicas = partitionsToBeReassigned(topicAndPartition)
     partitionsBeingReassigned.get(topicAndPartition) match {
       case Some(partition) => ReassignmentInProgress
       case None =>
         // check if the current replica assignment matches the expected one after reassignment
+        //获取已经属于该partition对应的备份节点集合
         val assignedReplicas = ZkUtils.getReplicasForPartition(zkClient, topicAndPartition.topic, topicAndPartition.partition)
         if(assignedReplicas == newReplicas)
           ReassignmentCompleted
@@ -188,7 +208,7 @@ object ReassignPartitionsCommand extends Logging {
 
     //三个命令
     val generateOpt = parser.accepts("generate", "Generate a candidate partition reassignment configuration." +
-      " Note that this only generates a candidate assignment, it does not execute it.")//创建一个重新分配节点的配置,但是不会去执行
+      " Note that this only generates a candidate assignment, it does not execute it.")//产生一个重新分配节点的配置的候选方案,但是不会去执行
     val executeOpt = parser.accepts("execute", "Kick off the reassignment as specified by the --reassignment-json-file option.")//执行重新分配备份节点
     val verifyOpt = parser.accepts("verify", "Verify if the reassignment completed as specified by the --reassignment-json-file option.")//检查重新分配是否完成
 
@@ -245,10 +265,10 @@ object ReassignPartitionsCommand extends Logging {
   }
 }
 
-//将topic-partition的备份分配到哪些节点上的信息写入到zookeeper中
+//将topic-partition的备份分配到哪些节点上的信息写入到zookeeper中,后续会有controler去监听这个节点的变化,去真正执行,因此这个执行是异步操作
 class ReassignPartitionsCommand(zkClient: ZkClient, partitions: collection.Map[TopicAndPartition, collection.Seq[Int]])
   extends Logging {
-  def reassignPartitions(): Boolean = {
+  def reassignPartitions(): Boolean = {//真正去执行分配
     try {
       val validPartitions = partitions.filter(p => validatePartition(zkClient, p._1.topic, p._1.partition))//过滤只要存在的topic-partition,不存在的过滤掉
       val jsonReassignmentData = ZkUtils.getPartitionReassignmentZkData(validPartitions)//创建zookeeper的内容

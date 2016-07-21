@@ -151,7 +151,7 @@ controller_epoch节点的值是一个数字,kafka集群中第一个broker第一�
  */
     ///admin/preferred_replica_election节点添加监听KafkaController中PreferredReplicaElectionListener
     /**
-     *存储内容 解析/admin/preferred_replica_election节点信息的内容,内容是一个map,格式{"partitions":[{key=value,topic=value},{key=value,topic=value}]},
+     *存储内容 解析/admin/preferred_replica_election节点信息的内容,内容是一个map,格式{"partitions":[{partition=value,topic=value},{partition=value,topic=value}]},
    * 总格式整理:
    * partitions = List[Map[String, Any]]
    * 其中key包含 topic,partition
@@ -710,7 +710,7 @@ controller_epoch节点的值是一个数字,kafka集群中第一个broker第一�
    * 1.读取/brokers/topics/${topic}的内容{partitions:{"1":[11,12,14],"2":[11,16,19]} } 含义是该topic中有两个partition,分别是1和2,每一个partition在哪些brokerId存储
    * 2.解析内容,返回映射关系
    * 
-   * 返回key是topic,value的key是该topic的partition,value是该partition对应的brokerId集合
+   * 返回key是topic,value的key是该topic的partition,value是该partition对应的brokerId备份集合
    */
   def getPartitionAssignmentForTopics(zkClient: ZkClient, topics: Seq[String]): mutable.Map[String, collection.Map[Int, Seq[Int]]] = {
     //返回key是topic,value的key是该topic的partition,value是该partition对应的brokerId集合
@@ -782,7 +782,7 @@ controller_epoch节点的值是一个数字,kafka集群中第一个broker第一�
   ]
 }
    * @param jsonData
-   * @return 返回值是要将topic-partition分配到哪些节点去做备份
+   * @return 返回值Seq[(TopicAndPartition, Seq[Int])是要将topic-partition分配到哪些节点去做备份
    */
   def parsePartitionReassignmentDataWithoutDedup(jsonData: String): Seq[(TopicAndPartition, Seq[Int])] = {
     Json.parseFull(jsonData) match {
@@ -970,7 +970,7 @@ val oneTwoThree = 1 :: twoThree // List(1, 2, 3)
       topics
   }
 
-  //获取所有的topic-partition集合
+  //获取所有的topic-partition集合 Set[TopicAndPartition]
   def getAllPartitions(zkClient: ZkClient): Set[TopicAndPartition] = {
     val topics = ZkUtils.getChildrenParentMayNotExist(zkClient, BrokerTopicsPath)
     if(topics == null) Set.empty[TopicAndPartition]
