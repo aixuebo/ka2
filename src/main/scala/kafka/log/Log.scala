@@ -51,7 +51,7 @@ import com.yammer.metrics.core.Gauge
  */
 @threadsafe
 class Log(val dir: File,
-          @volatile var config: LogConfig,
+          @volatile var config: LogConfig,//属于该topic-partition的配置文件,因为每个topic可能有不同的配置信息
           @volatile var recoveryPoint: Long = 0L,//每一个目录,对应一个recovery-point-offset-checkpoint文件,用于标示该目录下topic-partition同步到哪些offset了
           scheduler: Scheduler,
           time: Time = SystemTime) extends Logging with KafkaMetricsGroup {

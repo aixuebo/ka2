@@ -213,7 +213,7 @@ class ReplicaManager(val config: KafkaConfig,
       Some(partition)
   }
 
-  //通过topic-partitionId获取Partition对象,从而获取第replicaId个备份对象Replica
+  //通过topic-partitionId获取Partition对象,从而获取replicaId节点备份对象Replica
   //如果获取不到备份对象Replica,则抛异常
   def getReplicaOrException(topic: String, partition: Int): Replica = {
     val replicaOpt = getReplica(topic, partition)
@@ -241,7 +241,7 @@ class ReplicaManager(val config: KafkaConfig,
     }
   }
 
-  //通过topic-partitionId获取Partition对象,从而获取第replicaId个备份对象Replica
+  //通过topic-partitionId获取Partition对象,从而获取replicaId节点的备份对象Replica
   def getReplica(topic: String, partitionId: Int, replicaId: Int = config.brokerId): Option[Replica] =  {
     val partitionOpt = getPartition(topic, partitionId)
     partitionOpt match {
@@ -258,9 +258,10 @@ class ReplicaManager(val config: KafkaConfig,
    */
   def readMessageSets(fetchRequest: FetchRequest) = {
     val isFetchFromFollower = fetchRequest.isFromFollower//true表示该请求来自于follower节点
+    //fetchRequest.requestInfo发送本次抓取请求,是抓取那些topic-partition,从第几个序号开始抓取,最多抓取多少个字节
     fetchRequest.requestInfo.map{
       case (TopicAndPartition(topic, partition), PartitionFetchInfo(offset, fetchSize)) =>//抓去哪个topic-partition上从什么offset开始抓去.抓去多少条数据
-        val partitionDataAndOffsetInfo =
+      val partitionDataAndOffsetInfo =
           try {
             //真正去读取本地文件,返回抓去的数据
             val (fetchInfo, highWatermark) = readMessageSet(topic, partition, offset, fetchSize, fetchRequest.replicaId)//fetchRequest.replicaId哪个follower节点发过来的抓去请求
@@ -301,6 +302,7 @@ class ReplicaManager(val config: KafkaConfig,
    * @fromReplicaId 表示该请求是哪个follower节点发过来的
    * 
    * 返回FetchDataInfo, Long
+   *
    */
   private def readMessageSet(topic: String,
                              partition: Int,
@@ -313,9 +315,9 @@ class ReplicaManager(val config: KafkaConfig,
       getReplicaOrException(topic, partition)
     else
       getLeaderReplicaIfLocal(topic, partition)
-    trace("Fetching log segment for topic, partition, offset, size = " + (topic, partition, offset, maxSize))
+    trace("Fetching log segment for topic, partition, offset, size = " + (topic, partition, offset, maxSize)) //打印日志,开始抓去信息
     val maxOffsetOpt =
-      if (Request.isValidBrokerId(fromReplicaId))
+      if (Request.isValidBrokerId(fromReplicaId))//说明是follow节点,则不设置最大偏移量
         None
       else
         Some(localReplica.highWatermark.messageOffset)
@@ -621,9 +623,9 @@ class ReplicaManager(val config: KafkaConfig,
     }
   }
 
-  //获取所有的leader partition对象
+  //在本节点的所有topic-partition中获取所有是leader的partition集合
   private def getLeaderPartitions() : List[Partition] = {
-    allPartitions.values.filter(_.leaderReplicaIfLocal().isDefined).toList
+    allPartitions.values.filter(_.leaderReplicaIfLocal().isDefined).toList//过滤leader节点必须是本地的集合
   }
   /**
    * Flushes the highwatermark value for all partitions to the highwatermark file

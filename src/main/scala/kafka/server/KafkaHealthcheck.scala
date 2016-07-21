@@ -50,8 +50,8 @@ class KafkaHealthcheck(private val brokerId: Int, //要注册的节点ID
 
   //建立监听对象,并且向zookeeper注册
   def startup() {
-    zkClient.subscribeStateChanges(sessionExpireListener)
-    register()
+    zkClient.subscribeStateChanges(sessionExpireListener)//注册一个过期事件
+    register()//注册
   }
 
   /**

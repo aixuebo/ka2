@@ -43,9 +43,9 @@ class Partition(val topic: String,
                 val partitionId: Int,
                 time: Time,
                 replicaManager: ReplicaManager) extends Logging with KafkaMetricsGroup {
-  private val localBrokerId = replicaManager.config.brokerId
-  private val logManager = replicaManager.logManager
-  private val zkClient = replicaManager.zkClient
+  private val localBrokerId = replicaManager.config.brokerId//本地节点ID
+  private val logManager = replicaManager.logManager//本地的LogManager
+  private val zkClient = replicaManager.zkClient//本地的zookeeper
   //key是partition备份所在节点ID,value是对应的备份对象Replica,即备份partition的映射关系
   private val assignedReplicaMap = new Pool[Int, Replica]
   // The read lock is only required when multiple reads are executed and needs to be in a consistent manner
@@ -97,7 +97,7 @@ class Partition(val topic: String,
       case Some(replica) => replica
       case None =>
         if (isReplicaLocal(replicaId)) {//在本地创建一个log文件
-          val config = LogConfig.fromProps(logManager.defaultConfig.toProps, AdminUtils.fetchTopicConfig(zkClient, topic))
+          val config = LogConfig.fromProps(logManager.defaultConfig.toProps, AdminUtils.fetchTopicConfig(zkClient, topic))//创建topic的配置文件对象
           //为该topic-partition创建一个LOG对象,用于存储文件内容
           val log = logManager.createLog(TopicAndPartition(topic, partitionId), config)
           //key是log磁盘根目录,value是replication-offset-checkpoint文件
@@ -465,6 +465,7 @@ class Partition(val topic: String,
     }
   }
 
+  //topic和partition相同,就是同一个partition对象了
   override def equals(that: Any): Boolean = {
     if(!(that.isInstanceOf[Partition]))
       return false
@@ -478,6 +479,7 @@ class Partition(val topic: String,
     31 + topic.hashCode() + 17*partitionId
   }
 
+  //打印该topic-partition的leader节点以及分布了多少个备份节点，以及现在同步的备份节点有哪些
   override def toString(): String = {
     val partitionString = new StringBuilder
     partitionString.append("Topic: " + topic)

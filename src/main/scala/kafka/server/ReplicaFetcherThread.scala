@@ -24,7 +24,7 @@ import kafka.message.ByteBufferMessageSet
 import kafka.api.{OffsetRequest, FetchResponsePartitionData}
 import kafka.common.{KafkaStorageException, TopicAndPartition}
 
-//向partition的leader抓取数据
+//向partition的leader抓取数据的线程
 class ReplicaFetcherThread(name:String,
                            sourceBroker: Broker,
                            brokerConfig: KafkaConfig,
@@ -47,9 +47,9 @@ class ReplicaFetcherThread(name:String,
       val partitionId = topicAndPartition.partition
       //获取本地节点的存储partition的对象
       val replica = replicaMgr.getReplica(topic, partitionId).get
-      val messageSet = partitionData.messages.asInstanceOf[ByteBufferMessageSet]
+      val messageSet = partitionData.messages.asInstanceOf[ByteBufferMessageSet]//抓去回来的message集合信息
 
-      if (fetchOffset != replica.logEndOffset.messageOffset)
+      if (fetchOffset != replica.logEndOffset.messageOffset)//抓去的序号和已经存储的下一个序号要相匹配,不匹配则抛异常
         throw new RuntimeException("Offset mismatch: fetched offset = %d, log end offset = %d.".format(fetchOffset, replica.logEndOffset.messageOffset))
       
       //输出某个子节点 从xxx位置开始追加topic-partition的数据,追加xx个信息,leader节点是xxx

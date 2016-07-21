@@ -31,7 +31,7 @@ object Kafka extends Logging {
     }
   
     try {
-      val props = Utils.loadProps(args(0))
+      val props = Utils.loadProps(args(0))//读取配置文件
       val serverConfig = new KafkaConfig(props)
       KafkaMetricsReporter.startReporters(serverConfig.props)
       val kafkaServerStartable = new KafkaServerStartable(serverConfig)

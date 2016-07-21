@@ -63,7 +63,7 @@ import org.I0Itec.zkclient.{IZkChildListener, ZkClient}
  */
 class TopicConfigManager(private val zkClient: ZkClient,
                          private val logManager: LogManager,
-                         private val changeExpirationMs: Long = 15*60*1000,
+                         private val changeExpirationMs: Long = 15*60*1000,//过期时间,超过该时间的,会被删除掉,不再zookeeper上存储
                          private val time: Time = SystemTime) extends Logging {
   private var lastExecutedChange = -1L//上次更新到哪个/config/changes子节点了
   
@@ -72,8 +72,8 @@ class TopicConfigManager(private val zkClient: ZkClient,
    */
   def startup() {
     //创建/config/changes节点,并且添加监听事件
-    ZkUtils.makeSurePersistentPathExists(zkClient, ZkUtils.TopicConfigChangesPath)
-    zkClient.subscribeChildChanges(ZkUtils.TopicConfigChangesPath, ConfigChangeListener)
+    ZkUtils.makeSurePersistentPathExists(zkClient, ZkUtils.TopicConfigChangesPath)//创建/config/changes节点
+    zkClient.subscribeChildChanges(ZkUtils.TopicConfigChangesPath, ConfigChangeListener)//在节点/config/changes上设置监听,当topic信息更改的时候,会触发该事件
     processAllConfigChanges()//处理所有更改config的topic集合
   }
   
@@ -99,27 +99,27 @@ class TopicConfigManager(private val zkClient: ZkClient,
     if (notifications.size > 0) {//更改config的topic集合
       info("Processing config change notification(s)...")
       val now = time.milliseconds
-      val logs = logManager.logsByTopicPartition.toBuffer
+      val logs = logManager.logsByTopicPartition.toBuffer//每一个topic-partition对应一个该LOG对象
       //1.Map<TopicAndPartition, Log> 按照topic分组,即Map<Topic,Map<TopicAndPartition, Log>>
       //2.mapValues表示对map中的value进行处理,即对Map<TopicAndPartition, Log>进行处理,获取Map<TopicAndPartition, Log>中的每一个Log
       val logsByTopic = logs.groupBy(_._1.topic).mapValues(_.map(_._2))
       for (notification <- notifications) {
         val changeId = changeNumber(notification)//返回changId
-        if (changeId > lastExecutedChange) {
+        if (changeId > lastExecutedChange) {//说明是最新更改的topic
           val changeZnode = ZkUtils.TopicConfigChangesPath + "/" + notification //获取子节点全路径
-          val (jsonOpt, stat) = ZkUtils.readDataMaybeNull(zkClient, changeZnode)//读取变更节点的内容
+          val (jsonOpt, stat) = ZkUtils.readDataMaybeNull(zkClient, changeZnode)//读取变更节点的内容,内容就是更改的topic名称
           if(jsonOpt.isDefined) {
             val json = jsonOpt.get
-            val topic = json.substring(1, json.length - 1) // hacky way to dequote 去除json的{}
+            val topic = json.substring(1, json.length - 1) // hacky way to dequote 去除json的{} 就是topic名称
             if (logsByTopic.contains(topic)) {
               /* combine the default properties with the overrides in zk to create the new LogConfig */
               val props = new Properties(logManager.defaultConfig.toProps)//读取默认配置
-              props.putAll(AdminUtils.fetchTopicConfig(zkClient, topic))//读取topic的配置信息集合,/config/topics/topic
+              props.putAll(AdminUtils.fetchTopicConfig(zkClient, topic))//读取topic的新配置信息集合,/config/topics/topic,并且覆盖掉默认配置
               val logConfig = LogConfig.fromProps(props)//
-              for (log <- logsByTopic(topic))
-                log.config = logConfig
+              for (log <- logsByTopic(topic))//循环所有数据该topic的LOG对象,一个一个topic-partition对应一个LOG,因此可能会多个partition,所以会多个属于该topic的LOG
+                log.config = logConfig//更换每一个属于该topic的配置
               info("Processed topic config change %d for topic %s, setting new config to %s.".format(changeId, topic, props))
-              purgeObsoleteNotifications(now, notifications)
+              purgeObsoleteNotifications(now, notifications) //删除过期的配置
             }
           }
           lastExecutedChange = changeId
@@ -131,7 +131,7 @@ class TopicConfigManager(private val zkClient: ZkClient,
   //删除一些过期节点
   private def purgeObsoleteNotifications(now: Long, notifications: Seq[String]) {
     for(notification <- notifications.sorted) {
-      val (jsonOpt, stat) = ZkUtils.readDataMaybeNull(zkClient, ZkUtils.TopicConfigChangesPath + "/" + notification) //读取该topic配置文件更改路径
+      val (jsonOpt, stat) = ZkUtils.readDataMaybeNull(zkClient, ZkUtils.TopicConfigChangesPath + "/" + notification) //读取该topic配置文件更改路径的内容,即存储更改topic的名称
       if(jsonOpt.isDefined) {
         val changeZnode = ZkUtils.TopicConfigChangesPath + "/" + notification
         if (now - stat.getCtime > changeExpirationMs) {//超过了过期时间的,则都删除掉

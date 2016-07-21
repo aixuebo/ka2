@@ -37,6 +37,12 @@ import java.util.concurrent.atomic.AtomicLong
  * @Replica 表示该Replica所在broker节点ID
  * 
  * 该对象表示一个partition的一个备份,因此他包含Partition对象
+ *
+ * 总结:
+ * 1.Replica 表示一个partition的备份,因此对应哪个Partition就是参数partition的意义
+ * 2.brokerId 表示在brokerId节点存放着一个该partition的备份
+ * 3.initialHighWatermarkValue
+ * 4.log: Option[Log] 如果该partition在本节点就存在一个备份,则肯定有一个日志跟着,因此该参数就存在内容,如果备份在本节点不存在,则该值就是null
  */
 class Replica(val brokerId: Int,//该partition在哪个节点上的备份
               val partition: Partition,

@@ -41,8 +41,8 @@ import java.util.concurrent.{Executors, ExecutorService, ExecutionException, Fut
  */
 @threadsafe
 class LogManager(val logDirs: Array[File],//目录集合,可以处理目录存储log日志
-                 val topicConfigs: Map[String, LogConfig],
-                 val defaultConfig: LogConfig,
+                 val topicConfigs: Map[String, LogConfig],//每一个topic,对应一个独立的配置
+                 val defaultConfig: LogConfig,//默认的全局配置属性
                  val cleanerConfig: CleanerConfig,
                  ioThreads: Int,//线程数,多线程处理logDirs目录集合中的每一个目录,即每一个目录都对应一个该线程数量的线程池
                  val flushCheckMs: Long,

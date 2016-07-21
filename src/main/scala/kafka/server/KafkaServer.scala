@@ -128,7 +128,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = SystemTime) extends Logg
       kafkaHealthcheck.startup()
 
     
-      registerStats()
+      registerStats()//注册统计相关指标
       startupComplete.set(true)
       info("started")
     }
@@ -169,6 +169,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = SystemTime) extends Logg
 
   /**
    *  Forces some dynamic jmx beans to be registered on server startup.
+   *  注册统计相关指标
    */
   private def registerStats() {
     BrokerTopicStats.getBrokerAllTopicsStats()
@@ -332,7 +333,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = SystemTime) extends Logg
     
     //针对每一个topic有单独的配置信息,与默认配置信息合并覆盖操作
     //configs是一个Map<String, LogConfig>,可以是topic,value是该topic的LogConfig对象
-    val configs = AdminUtils.fetchAllTopicConfigs(zkClient).mapValues(LogConfig.fromProps(defaultProps, _))
+    val configs = AdminUtils.fetchAllTopicConfigs(zkClient).mapValues(LogConfig.fromProps(defaultProps, _)) ////每一个topic,对应一个独立的配置
     // read the log configurations from zookeeper
     val cleanerConfig = CleanerConfig(numThreads = config.logCleanerThreads,
                                       dedupeBufferSize = config.logCleanerDedupeBufferSize,
