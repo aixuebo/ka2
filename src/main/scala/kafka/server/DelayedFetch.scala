@@ -35,6 +35,7 @@ import scala.collection.Seq
  *   - should return all the data on that segment.
  * Case D: The accumulated bytes from all the fetching partitions exceeds the minimum bytes
  *   - should return whatever data is available.
+ *
  */
 
 class DelayedFetch(override val keys: Seq[TopicAndPartition],
@@ -42,16 +43,18 @@ class DelayedFetch(override val keys: Seq[TopicAndPartition],
                    override val delayMs: Long,
                    val fetch: FetchRequest,
                    private val partitionFetchOffsets: Map[TopicAndPartition, LogOffsetMetadata]) extends DelayedRequest(keys, request, delayMs) {
-
+//
   def isSatisfied(replicaManager: ReplicaManager) : Boolean = {
     var accumulatedSize = 0
     val fromFollower = fetch.isFromFollower
     partitionFetchOffsets.foreach {
       case (topicAndPartition, fetchOffset) =>
         try {
+          //
           if (fetchOffset != LogOffsetMetadata.UnknownOffsetMetadata) {
             //查找本地的备份对象
             val replica = replicaManager.getLeaderReplicaIfLocal(topicAndPartition.topic, topicAndPartition.partition)
+            //获取位置序号
             val endOffset =
               if (fromFollower)
                 replica.logEndOffset

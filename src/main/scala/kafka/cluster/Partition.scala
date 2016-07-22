@@ -423,7 +423,7 @@ class Partition(val topic: String,
   def appendMessagesToLeader(messages: ByteBufferMessageSet, requiredAcks: Int=0) = {
     inReadLock(leaderIsrUpdateLock) {
       val leaderReplicaOpt = leaderReplicaIfLocal()
-      leaderReplicaOpt match {
+      leaderReplicaOpt match {//找到本地的leader的LOG对象
         case Some(leaderReplica) =>
           val log = leaderReplica.log.get //leader节点log信息
           val minIsr = log.config.minInSyncReplicas //表示partition的最小同步数量,即达到该数量的备份数,就可以认为是成功备份了
@@ -434,7 +434,7 @@ class Partition(val topic: String,
             throw new NotEnoughReplicasException("Number of insync replicas for partition [%s,%d] is [%d], below required minimum [%d]"
               .format(topic,partitionId,minIsr,inSyncSize))
           }
-
+//
           //追加信息到leader所在的日志文件中
           val info = log.append(messages, assignOffsets = true)
           // probably unblock some follower fetch requests since log end offset has been updated

@@ -200,10 +200,10 @@ abstract class RequestPurgatory[T <: DelayedRequest](brokerId: Int = 0, purgeInt
   private class Watchers {
     private val requests = new util.LinkedList[T]
 
-    // return the size of the watch list
+    // return the size of the watch list 返回缓存的请求数量
     def watched() = requests.size()
 
-    // add the element to the watcher list if it's not already satisfied
+    // add the element to the watcher list if it's not already satisfied 如果不满足,则添加.false说明已经满足了,不能添加了
     def addIfNotSatisfied(t: T): Boolean = {
       if (t.satisfied.get)
         return false
@@ -217,6 +217,7 @@ abstract class RequestPurgatory[T <: DelayedRequest](brokerId: Int = 0, purgeInt
 
     // traverse the list and purge satisfied elements穿过list集合,清除satisfied=true的元素
     //将curr.satisfied=true的移除掉,返回移除了多少个元素
+    //净化一些数据
     def purgeSatisfied(): Int = {
       synchronized {
         val iter = requests.iterator()

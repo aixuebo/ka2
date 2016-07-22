@@ -36,8 +36,8 @@ class FetchRequestPurgatory(replicaManager: ReplicaManager, requestChannel: Requ
     val expiredRequestMeter = newMeter(metricPrefix + "ExpiresPerSecond", "requests", TimeUnit.SECONDS)
   }
 
-  private val aggregateFollowerFetchRequestMetrics = new DelayedFetchRequestMetrics(forFollower = true)
-  private val aggregateNonFollowerFetchRequestMetrics = new DelayedFetchRequestMetrics(forFollower = false)
+  private val aggregateFollowerFetchRequestMetrics = new DelayedFetchRequestMetrics(forFollower = true)//follow节点统计
+  private val aggregateNonFollowerFetchRequestMetrics = new DelayedFetchRequestMetrics(forFollower = false)//非follow节点统计
 
   private def recordDelayedFetchExpired(forFollower: Boolean) {
     val metrics = if (forFollower) aggregateFollowerFetchRequestMetrics
