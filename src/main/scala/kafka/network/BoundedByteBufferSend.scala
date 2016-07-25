@@ -26,7 +26,7 @@ import kafka.api.RequestOrResponse
  * 把buffer中的数据发送到channel中
  * 有界限的buffer缓冲池
  *
- * 参数buffer 包含request的类型id和request的具体字节数组
+ * 参数buffer 用于存储request的类型id和request的具体字节数组
  */
 @nonthreadsafe
 private[kafka] class BoundedByteBufferSend(val buffer: ByteBuffer) extends Send {
@@ -34,6 +34,7 @@ private[kafka] class BoundedByteBufferSend(val buffer: ByteBuffer) extends Send 
   private var sizeBuffer = ByteBuffer.allocate(4)//用int类型的4个字节记录buffer中有多少个字节可用
 
   // Avoid possibility of overflow for 2GB-4 byte buffer 校验buffer要发送的数据不能超过int的范围,不然没办法使用sizeBuffer标示有多少个字节要发送了
+  //即剩余字节数+limit已经存在的位置,大于int是不允许的
   if(buffer.remaining > Int.MaxValue - sizeBuffer.limit)
     throw new IllegalStateException("Attempt to create a bounded buffer of " + buffer.remaining + " bytes, but the maximum " +
                                        "allowable size for a bounded buffer is " + (Int.MaxValue - sizeBuffer.limit) + ".")    
@@ -65,7 +66,7 @@ private[kafka] class BoundedByteBufferSend(val buffer: ByteBuffer) extends Send 
     expectIncomplete()//校验,保证尚未完成
     var written = channel.write(Array(sizeBuffer, buffer))//将两个ByteBuffer数组发送到channel中,第一个记录第二个buffer中有多少个字节
     // if we are done, mark it off
-    if(!buffer.hasRemaining)//如果第二个buffer没有数据了,则说明完成发送了,设置complete=true
+    if(!buffer.hasRemaining)//如果第二个buffer没有数据了,则说明完成发送了,设置complete=true,目前觉得肯定一次性发送完成,除非收socket的buffer控制,可能发送不完,下次继续发,因为limit位置不变,position位置变化,下次可以追加写入
       complete = true    
     written.asInstanceOf[Int]
   }

@@ -149,6 +149,7 @@ abstract class RequestPurgatory[T <: DelayedRequest](brokerId: Int = 0, purgeInt
 
   /**
    * Update any watchers and return a list of newly satisfied requests.
+   * 返回最新被满足的集合
    */
   def update(key: Any): Seq[T] = {
     val w = watchersForKey.get(key)
@@ -162,6 +163,7 @@ abstract class RequestPurgatory[T <: DelayedRequest](brokerId: Int = 0, purgeInt
    * Return the size of the watched lists in the purgatory, which is the size of watch lists.
    * Since an operation may still be in the watch lists even when it has been completed,
    * this number may be larger than the number of real operations watched
+   * 每一个key对应的监控的request集合大小总和
    */
   def watched() = watchersForKey.values.map(_.watched).sum
 
@@ -234,6 +236,11 @@ abstract class RequestPurgatory[T <: DelayedRequest](brokerId: Int = 0, purgeInt
     }
 
     // traverse the list and try to satisfy watched elements 穿过list集合,返回satisfied=false的元素集合,并且移除satisfied=true的元素集合
+    /**
+     * 循环所有的请求
+     * 满足的移除掉
+     * 不满足的去校验是否满足,如果已经满足了,则移除掉,同时添加到参数集合中
+     */
     def collectSatisfiedRequests(): Seq[T] = {
       val response = new mutable.ArrayBuffer[T]
       synchronized {
@@ -272,8 +279,8 @@ abstract class RequestPurgatory[T <: DelayedRequest](brokerId: Int = 0, purgeInt
     //优先队列
     private val delayedQueue = new DelayQueue[T]
 
-    def delayed() = delayedQueue.size()
-    
+    def delayed() = delayedQueue.size()//当前队列有多少数据
+
     /** Main loop for the expiry thread */
     def run() {
       while(running.get) {

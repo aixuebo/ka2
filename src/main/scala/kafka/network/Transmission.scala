@@ -50,7 +50,7 @@ private[network] trait Transmission extends Logging {
  */
 trait Receive extends Transmission {
   
-  def buffer: ByteBuffer
+  def buffer: ByteBuffer //最终接受到的全部字节数组
   
   //ReadableByteChannel 表示数据源,从该数据源读取数据,一般读取到指定的ByteBuffer中,返回本次读取了多少个字节
   def readFrom(channel: ReadableByteChannel): Int

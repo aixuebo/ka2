@@ -42,7 +42,7 @@ private[kafka] class BoundedByteBufferReceive(val maxSize: Int) extends Receive 
    * 首先去报已经完成,然后才获取该完成后的buffer对象
    */
   def buffer: ByteBuffer = {
-    expectComplete()
+    expectComplete()//期望完成,只有完成的时候才能获取接受到的字节数组
     contentBuffer
   }
   
@@ -68,6 +68,7 @@ private[kafka] class BoundedByteBufferReceive(val maxSize: Int) extends Receive 
       //对buffer进行初始化
       contentBuffer = byteBufferAllocate(size)
     }
+    //如果非第一次读取数据,则直接向contentBuffer中存储数据即可
     // if we have a buffer read some stuff into it
     if(contentBuffer != null) {//如果contentBuffer已经存在了,则将channel数据写入到buffer中
       read = Utils.read(channel, contentBuffer)//将ReadableByteChannel的数据写入到buffer中,返回读取了多少个字节
