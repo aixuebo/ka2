@@ -39,7 +39,7 @@ class KafkaApis(val requestChannel: RequestChannel,
                 val replicaManager: ReplicaManager,
                 val offsetManager: OffsetManager,
                 val zkClient: ZkClient,
-                val brokerId: Int,
+                val brokerId: Int,//在哪个节点上运行的该程序
                 val config: KafkaConfig,
                 val controller: KafkaController) extends Logging {
 
@@ -207,7 +207,7 @@ class KafkaApis(val requestChannel: RequestChannel,
    */
   def handleProducerOrOffsetCommitRequest(request: RequestChannel.Request) {
     val (produceRequest, offsetCommitRequestOpt) =
-      if (request.requestId == RequestKeys.OffsetCommitKey) {
+      if (request.requestId == RequestKeys.OffsetCommitKey) {//说明是生产者提交的已经消费到哪个序号请求
         val offsetCommitRequest = request.requestObj.asInstanceOf[OffsetCommitRequest]
         OffsetCommitRequest.changeInvalidTimeToCurrentTime(offsetCommitRequest)//填充非法的时间戳
         (producerRequestFromOffsetCommit(offsetCommitRequest), Some(offsetCommitRequest)) //对offset请求的转换,转换成一个生产者请求

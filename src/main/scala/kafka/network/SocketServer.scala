@@ -283,7 +283,7 @@ private[kafka] class Acceptor(val host: String,
     val socketChannel = serverSocketChannel.accept()//通过该流获取通讯的socket
     try {
       connectionQuotas.inc(socketChannel.socket().getInetAddress)//记录该ip向服务器建立了一个连接
-      socketChannel.configureBlocking(false)
+      socketChannel.configureBlocking(false)//设置非阻塞,因为select模式只能用在非阻塞上
       socketChannel.socket().setTcpNoDelay(true)
       socketChannel.socket().setSendBufferSize(sendBufferSize)//设置向该客户端发送数据的buffer缓存
 
@@ -443,7 +443,7 @@ private[kafka] class Processor(val id: Int,//该处理器的序号
 
   /**
    * Register any new connections that have been queued up
-   * 从队列中获取一个客户端的请求,然后读取该请求信息
+   * 从队列中获取一个客户端的请求,然后注册要去从该渠道读字节
    */
   private def configureNewConnections() {
     while(newConnections.size() > 0) {
@@ -461,7 +461,7 @@ private[kafka] class Processor(val id: Int,//该处理器的序号
     lruConnections.put(key, currentTimeNanos)//更新该客户端连接什么时候有过最新操作时间
     val socketChannel = channelFor(key)//获取与该SelectionKey对应的SocketChannel客户端与服务器连接流
     var receive = key.attachment.asInstanceOf[Receive]//获取或者绑定一个接收数据的对象
-    if(key.attachment == null) {
+    if(key.attachment == null) {//如果第一次,则存放一个有边界的receive对象用于接受数据
       receive = new BoundedByteBufferReceive(maxRequestSize)
       key.attach(receive)
     }
@@ -496,7 +496,7 @@ private[kafka] class Processor(val id: Int,//该处理器的序号
     val response = key.attachment().asInstanceOf[RequestChannel.Response]
     val responseSend = response.responseSend
     if(responseSend == null)
-      throw new IllegalStateException("Registered for write interest but no response attached to key.")
+      throw new IllegalStateException("Registered for write interest but no response attached to key.")//说明没有要写的数据给客户端
     val written = responseSend.writeTo(socketChannel)//向客户端写response数据
     trace(written + " bytes written to " + socketChannel.socket.getRemoteSocketAddress() + " using key " + key)
     if(responseSend.complete) {

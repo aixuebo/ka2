@@ -8,11 +8,12 @@
 1.连接zookeeper
 2.LogManager 用于在该节点存储topic-partition的日志服务
 3.new SocketServer在该节点开通一个服务端socket,用于接收各种服务命令
-4.new KafkaRequestHandlerPool(config.brokerId, socketServer.requestChannel, apis, config.numIoThreads) 处理socket的请求
+4.new KafkaRequestHandlerPool(config.brokerId, socketServer.requestChannel, apis, config.numIoThreads) 处理socket的请求,从该socketserver中不断拿到request请求去处理
 5.KafkaHealthcheck 用于将该broker节点的信息注册到zookeeper中,并且当节点失效的时候,继续重新注册到zookeeper的过程。
 6.TopicConfigManager 当topic的配置文件发生变化的时候,要更新LogManager中每一个Topic-partition对应的配置对象
 7.ReplicaManager
-8.OffsetManager
+8.OffsetManager 用于存储group-topic-partition的offset信息的配置 ,即每一个消费组消费每一个topic-partition到哪个序号了
+                只有存储该topic的log节点上或者备份节点上有该对象,但是每一个节点都会产生一个该对象,只是可能该对象没有意义
 9.KafkaController
 
 

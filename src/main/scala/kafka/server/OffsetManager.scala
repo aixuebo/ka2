@@ -58,7 +58,8 @@ import org.I0Itec.zkclient.ZkClient
  *                              commit or this timeout is reached. (Similar to the producer request timeout.)
  * @param offsetCommitRequiredAcks The required acks before the commit can be accepted. In general, the default (-1) 
  *                                 should not be overridden.
- * 用于存储topic-partition的offset信息的配置 ,一个broker一个该对象
+ * 用于存储group-topic-partition的offset信息的配置 ,即每一个消费组消费每一个topic-partition到哪个序号了
+ * 只有存储该topic的log节点上或者备份节点上有该对象 ,但是每一个节点都会产生一个该对象,只是可能该对象没有意义
  */
 case class OffsetManagerConfig(maxMetadataSize: Int = OffsetManagerConfig.DefaultMaxMetadataSize,//offset最多允许多少个字符存储描述信息,超过该限制的则不要该记录
                                loadBufferSize: Int = OffsetManagerConfig.DefaultLoadBufferSize,//加载offset的topic-partition文件需要的内存缓冲区大小
@@ -66,7 +67,7 @@ case class OffsetManagerConfig(maxMetadataSize: Int = OffsetManagerConfig.Defaul
                                offsetsRetentionCheckIntervalMs: Long = OffsetManagerConfig.DefaultOffsetsRetentionCheckIntervalMs,//一定周期执行一次compact方法
                                offsetsTopicNumPartitions: Int = OffsetManagerConfig.DefaultOffsetsTopicNumPartitions,//按照group进行拆分partition
                                offsetsTopicSegmentBytes: Int = OffsetManagerConfig.DefaultOffsetsTopicSegmentBytes,
-                               offsetsTopicReplicationFactor: Short = OffsetManagerConfig.DefaultOffsetsTopicReplicationFactor,
+                               offsetsTopicReplicationFactor: Short = OffsetManagerConfig.DefaultOffsetsTopicReplicationFactor,//partition的备份数
                                offsetsTopicCompressionCodec: CompressionCodec = OffsetManagerConfig.DefaultOffsetsTopicCompressionCodec,//向offset对应的topic中写入的信息需要什么压缩方式
                                offsetCommitTimeoutMs: Int = OffsetManagerConfig.DefaultOffsetCommitTimeoutMs,//作为生产者提交该topic-partition的时候,要求回执信息的超时时间
                                offsetCommitRequiredAcks: Short = OffsetManagerConfig.DefaultOffsetCommitRequiredAcks) //作为生产者提交该topic-partition的时候,是否需要处理回执信息
@@ -96,7 +97,7 @@ class OffsetManager(val config: OffsetManagerConfig,
    * 做一个缓存,key表示group-topic-partition,value表示该partition对应的偏移量以及描述信息 
    **/
   private val offsetsCache = new Pool[GroupTopicPartition, OffsetAndMetadata]
-  private val followerTransitionLock = new Object
+  private val followerTransitionLock = new Object//锁对象
 
   //加载topic为__consumer_offsets的第offsetsPartition个partition,是异步的方式读取
   //该值存储的是第几个offsetsPartition正在被异步加载中,加载完成后就会从该set中清除
@@ -141,7 +142,7 @@ class OffsetManager(val config: OffsetManagerConfig,
      * 说明offsetsPartition是该group所在的分区,value是group-topic-partition组成的字节数组
      */
     val tombstonesForPartition = staleOffsets.map { case(groupTopicAndPartition, offsetAndMetadata) =>
-      val offsetsPartition = partitionFor(groupTopicAndPartition.group) //group在哪个组
+      val offsetsPartition = partitionFor(groupTopicAndPartition.group) //group在哪个partition中存储
       //打印日志,移除腐朽的偏移量和描述信息 for group-topic-partition:offset-message-时间戳
       trace("Removing stale offset and metadata for %s: %s".format(groupTopicAndPartition, offsetAndMetadata))
       //真正的去移除
@@ -156,17 +157,19 @@ class OffsetManager(val config: OffsetManagerConfig,
 
     // Append the tombstone messages to the offset partitions. It is okay if the replicas don't receive these (say,
     // if we crash or leaders move) since the new leaders will get rid of stale offsets during their own purge cycles.
+    //返回的就是删除了多少个group-topic-partition组合存储的偏移量
     val numRemoved = tombstonesForPartition.flatMap { case(offsetsPartition, tombstones) =>
       val partitionOpt = replicaManager.getPartition(OffsetManager.OffsetsTopicName, offsetsPartition) //获取topic为__consumer_offsets的,第offsetsPartition个partition
       partitionOpt.map { partition =>
-        val appendPartition = TopicAndPartition(OffsetManager.OffsetsTopicName, offsetsPartition)
-        val messages = tombstones.map(_._2).toSeq
+        val appendPartition = TopicAndPartition(OffsetManager.OffsetsTopicName, offsetsPartition) //找到topic-partition
+        val messages = tombstones.map(_._2).toSeq //在该partition中要操作的key集合,key由group-topic-partition组成
 
+        //日志,标记多少组group-topic-partition的偏移量 在xxxpartition中存储的内容要被删除掉
         trace("Marked %d offsets in %s for deletion.".format(messages.size, appendPartition))
 
         try {
           //向topic:__consumer_offsets对应的一个partition中写入信息,即写入group-topic-partition信息
-          partition.appendMessagesToLeader(new ByteBufferMessageSet(config.offsetsTopicCompressionCodec, messages:_*))
+          partition.appendMessagesToLeader(new ByteBufferMessageSet(config.offsetsTopicCompressionCodec, messages:_*))//因为没有写入value,即没有写入对应的消费的序号,因此等下次加载的时候,就会被认为是删除的,不会被加入到内存中
           tombstones.size
         }
         catch {
@@ -189,6 +192,7 @@ class OffsetManager(val config: OffsetManagerConfig,
     props
   }
 
+  //返回该group在哪个partition中存储
   def partitionFor(group: String): Int = Utils.abs(group.hashCode) % config.offsetsTopicNumPartitions
 
   /**
@@ -276,7 +280,7 @@ class OffsetManager(val config: OffsetManagerConfig,
 
   /**
    * Asynchronously read the partition from the offsets topic and populate the cache
-   * 加载topic为__consumer_offsets的第offsetsPartition个partition,是异步的方式读取
+   * 异步的方式从日志中加载第offsetsPartition个topic-partition到内存中,注意topic为__consumer_offsets
    */
   def loadOffsetsFromLog(offsetsPartition: Int) {
 
@@ -299,10 +303,10 @@ class OffsetManager(val config: OffsetManagerConfig,
 
       val startMs = SystemTime.milliseconds
       try {
-        replicaManager.logManager.getLog(topicPartition) match {//读取制定topic-partition对应的文件
+        replicaManager.logManager.getLog(topicPartition) match {//读取制定topic-partition对应的LOG文件
           case Some(log) =>
             //开始读取该partition数据
-            var currOffset = log.logSegments.head.baseOffset
+            var currOffset = log.logSegments.head.baseOffset//获取第1个segment文件的第一个偏移量,也就是目前该partition存储的最小的序号
             val buffer = ByteBuffer.allocate(config.loadBufferSize) //创建缓冲区
             // loop breaks if leader changes at any time during the load, since getHighWatermark is -1
             while (currOffset < getHighWatermark(offsetsPartition) && !shuttingDown.get()) {//不断循环读取数据
@@ -325,7 +329,7 @@ class OffsetManager(val config: OffsetManagerConfig,
                 }
                 currOffset = msgAndOffset.nextOffset
               }
-            }
+            }//结束不断循环读取数据
 
             if (!shuttingDown.get())
               info("Finished loading offsets from %s in %d milliseconds."
@@ -348,7 +352,7 @@ class OffsetManager(val config: OffsetManagerConfig,
   private def getHighWatermark(partitionId: Int): Long = {
     val partitionOpt = replicaManager.getPartition(OffsetManager.OffsetsTopicName, partitionId)
 
-    //是本地的文件,则会返回最后一个偏移量位置,不是本地文件,则返回-1
+    //是本地的文件,则会返回当前下一个message的序号,该序号就是全局的序号,不是本地文件,则返回-1
     val hw = partitionOpt.map { partition =>
       partition.leaderReplicaIfLocal().map(_.highWatermark.messageOffset).getOrElse(-1L)
     }.getOrElse(-1L)
@@ -356,6 +360,7 @@ class OffsetManager(val config: OffsetManagerConfig,
     hw
   }
 
+  //leader在本地返回true
   private def leaderIsLocal(partition: Int) = { getHighWatermark(partition) != -1L }
 
   /**
@@ -428,7 +433,7 @@ object OffsetManager {
    *
    * @return key for offset commit message
    * 用Schema定义字节数组,存储内容:
-   * group、topic、partition、versionId
+   * versionId、group、topic、partition
    * 最终字节数组中存储的是2个字节存储version,剩下字节存储group、topic、partition
    */
   def offsetCommitKey(group: String, topic: String, partition: Int, versionId: Short = 0): Array[Byte] = {
@@ -449,7 +454,7 @@ object OffsetManager {
    * @param offsetAndMetadata consumer's current offset and metadata
    * @return payload for offset commit message
    * 用Schema定义字节数组,存储内容:
-   * offset、metadata、timestamp、versionId
+   * versionId、offset、metadata、timestamp
    */
   def offsetCommitValue(offsetAndMetadata: OffsetAndMetadata): Array[Byte] = {
     val value = new Struct(CURRENT_SCHEMA.valueSchema) //设置VALUE
@@ -517,6 +522,7 @@ object OffsetManager {
 
   // Formatter for use with tools such as console consumer: Consumer should also set exclude.internal.topics to false.
   // (specify --formatter "kafka.server.OffsetManager\$OffsetsMessageFormatter" when consuming __consumer_offsets)
+  //为用户提供一个格式化工具,比如消费者控制台
   class OffsetsMessageFormatter extends MessageFormatter {
     
       //从key和value字节数组中,反序列化成TopicAndPartition和OffsetAndMetadata对象,然后输出到PrintStream输出流中

@@ -62,6 +62,9 @@ object RequestKeys {
   }
 
   //返回编号对应的ByteBuffer类型RequestOrResponse
+  /**
+   * deserializerForKey(key: Short): (ByteBuffer) => RequestOrResponse = 表示deserializerForKey(key: Short)的返回值需要一个参数ByteBuffer,然后生成RequestOrResponse对象
+   */
   def deserializerForKey(key: Short): (ByteBuffer) => RequestOrResponse = {
     keyToNameAndDeserializerMap.get(key) match {
       case Some(nameAndSerializer) => nameAndSerializer._2

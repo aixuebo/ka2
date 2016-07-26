@@ -210,7 +210,7 @@ class Partition(val topic: String,
       assignedReplicas.foreach(r => if (r.brokerId != localBrokerId) r.logEndOffset = LogOffsetMetadata.UnknownOffsetMetadata)
       // we may need to increment high watermark since ISR could be down to 1
       maybeIncrementLeaderHW(newLeaderReplica)
-      if (topic == OffsetManager.OffsetsTopicName)
+      if (topic == OffsetManager.OffsetsTopicName) //kafka内部的topic,单独加载
         offsetManager.loadOffsetsFromLog(partitionId)
       true
     }

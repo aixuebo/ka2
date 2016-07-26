@@ -52,10 +52,10 @@ object RequestChannel extends Logging {
    * @param remoteAddress 客户端ip
    */
   case class Request(processor: Int, requestKey: Any, private var buffer: ByteBuffer, startTimeMs: Long, remoteAddress: SocketAddress = new InetSocketAddress(0)) {
-    @volatile var requestDequeueTimeMs = -1L//请求出队列时间
+    @volatile var requestDequeueTimeMs = -1L//请求出队列时间,即kafka.server.KafkaRequestHandler去拿到一个request,准备开始处理该请求的时间
     @volatile var apiLocalCompleteTimeMs = -1L//KafKaApi最终完成事件
-    @volatile var responseCompleteTimeMs = -1L
-    @volatile var responseDequeueTimeMs = -1L
+    @volatile var responseCompleteTimeMs = -1L//生成response时间,该response已经添加到队列中等待socketServer处理
+    @volatile var responseDequeueTimeMs = -1L//表示socketServer已经拿到了该response的时间
     
     //通过buffer还原类型信息和RequestOrResponse类型对象
     val requestId = buffer.getShort()
@@ -65,18 +65,19 @@ object RequestChannel extends Logging {
     //打印哪个处理器要处理该RequestOrResponse请求
     trace("Processor %d received request : %s".format(processor, requestObj))
 
+    //说明该请求结束了,进行统计
     def updateRequestMetrics() {
       val endTimeMs = SystemTime.milliseconds
       // In some corner cases, apiLocalCompleteTimeMs may not be set when the request completes since the remote
       // processing time is really small. In this case, use responseCompleteTimeMs as apiLocalCompleteTimeMs.
       if (apiLocalCompleteTimeMs < 0)
         apiLocalCompleteTimeMs = responseCompleteTimeMs
-      val requestQueueTime = (requestDequeueTimeMs - startTimeMs).max(0L)
+      val requestQueueTime = (requestDequeueTimeMs - startTimeMs).max(0L)//表示该请求在队列里等待被处理的时间,该时间越长,表示队列处理的速度越慢
       val apiLocalTime = (apiLocalCompleteTimeMs - requestDequeueTimeMs).max(0L)
       val apiRemoteTime = (responseCompleteTimeMs - apiLocalCompleteTimeMs).max(0L)
-      val responseQueueTime = (responseDequeueTimeMs - responseCompleteTimeMs).max(0L)
-      val responseSendTime = (endTimeMs - responseDequeueTimeMs).max(0L)
-      val totalTime = endTimeMs - startTimeMs
+      val responseQueueTime = (responseDequeueTimeMs - responseCompleteTimeMs).max(0L)//resonse完成到被socketserver拿出去处理之间在队列里面带的时间
+      val responseSendTime = (endTimeMs - responseDequeueTimeMs).max(0L)//在socketServer已经拿到了该response之后,花了多久才处理完成的时间
+      val totalTime = endTimeMs - startTimeMs//该请求总消耗时间
       
       //获取该分类要统计的维度集合
       var metricsList = List(RequestMetrics.metricsMap(RequestKeys.nameForKey(requestId)))
@@ -135,7 +136,7 @@ object RequestChannel extends Logging {
 
 //表示请求的队列
 class RequestChannel(val numProcessors: Int, val queueSize: Int) extends KafkaMetricsGroup {
-  private var responseListeners: List[(Int) => Unit] = Nil//该List集合存储int值
+  private var responseListeners: List[(Int) => Unit] = Nil//监听集合,int表示哪个队列的监听器
   
   private val requestQueue = new ArrayBlockingQueue[RequestChannel.Request](queueSize)//该阻塞队列存储RequestChannel.Request对象,
   //每一个处理器拥有一个队列,每一个队列存储Response对象
@@ -163,12 +164,16 @@ class RequestChannel(val numProcessors: Int, val queueSize: Int) extends KafkaMe
     )
   }
 
-  /** Send a request to be handled, potentially blocking until there is room in the queue for the request */
+  /** Send a request to be handled, potentially blocking until there is room in the queue for the request
+    * 收到一个请求
+    **/
   def sendRequest(request: RequestChannel.Request) {
     requestQueue.put(request)
   }
   
-  /** Send a response back to the socket server to be sent over the network */ 
+  /** Send a response back to the socket server to be sent over the network
+    * 收到一个回复
+    **/
   def sendResponse(response: RequestChannel.Response) {
     responseQueues(response.processor).put(response)
     for(onResponse <- responseListeners)
