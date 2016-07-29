@@ -30,12 +30,13 @@ import kafka.controller.KafkaController
  * leader is dead, this class will handle automatic re-election and if it succeeds, it invokes the leader state change
  * callback
  * 选举类
+ * 每一个节点都会有一个该实例,因为每一个节点都可能是leader节点
  */
 class ZookeeperLeaderElector(controllerContext: ControllerContext,
                              electionPath: String,
                              onBecomingLeader: () => Unit,//当该节点变成leader时候执行该函数
                              onResigningAsLeader: () => Unit,//当重新设置leader选举时,执行该函数
-                             brokerId: Int)
+                             brokerId: Int)//服务节点所在ID
   extends LeaderElector with Logging {
   var leaderId = -1//当前leader是什么
   // create the election path in ZK, if one does not exist
@@ -66,7 +67,7 @@ class ZookeeperLeaderElector(controllerContext: ControllerContext,
   //返回该节点是否选举成功
   def elect: Boolean = {
     val timestamp = SystemTime.milliseconds.toString
-    val electString = Json.encode(Map("version" -> 1, "brokerid" -> brokerId, "timestamp" -> timestamp))
+    val electString = Json.encode(Map("version" -> 1, "brokerid" -> brokerId, "timestamp" -> timestamp))//存储到zookeeper的内容,当选举成功后存储该内容
    
    leaderId = getControllerID //获取当前leader
     /* 
@@ -94,11 +95,12 @@ class ZookeeperLeaderElector(controllerContext: ControllerContext,
         leaderId = getControllerID //说明已经有其他节点选举上了,则获取当前被选举的节点Id
 
         if (leaderId != -1)
-          debug("Broker %d was elected as leader instead of broker %d".format(leaderId, brokerId))
+          debug("Broker %d was elected as leader instead of broker %d".format(leaderId, brokerId))//打印日志,说明 已经xxx节点是leader节点
         else
           warn("A leader has been elected but just resigned, this will result in another round of election")
 
-      case e2: Throwable =>//说明选举中出现异常,要重置
+      case e2: Throwable =>
+        //说明选举中出现异常,要重置
         error("Error while electing or becoming leader on broker %d".format(brokerId), e2)
         resign()
     }

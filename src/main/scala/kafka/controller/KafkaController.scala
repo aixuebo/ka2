@@ -54,7 +54,8 @@ class ControllerContext(val zkClient: ZkClient,
   
   val brokerShutdownLock: Object = new Object
   
-  //controller_epoch节点的值是一个数字,kafka集群中第一个broker第一次启动时为1，以后只要集群中center controller中央控制器所在broker变更或挂掉，就会重新选举新的center controller，每次center controller变更controller_epoch值就会 + 1; 
+  //controller_epoch节点的值是一个数字,kafka集群中第一个broker第一次启动时为1，以后只要集群中center controller中央控制器所在broker变更或挂掉，就会重新选举新的center controller，
+  // 每次center controller变更controller_epoch值就会 + 1;
   var epoch: Int = KafkaController.InitialControllerEpoch - 1 //真正是从zookeeper中读取的该值
   var epochZkVersion: Int = KafkaController.InitialControllerEpochZkVersion - 1 //真正是从zookeeper中读取的该值
   
@@ -174,6 +175,10 @@ object KafkaController extends Logging {
   case class StateChangeLogger(override val loggerName: String) extends Logging
 
   //参数controllerInfoString:是json格式,解析的内容是哪个broker节点是kafka主节点,返回该主节点的broker的id
+  /**
+   * 新版本是json,格式是brokerid:节点id
+   * 老版本不是json,直接存储的是brokerid
+   */
   def parseControllerId(controllerInfoString: String): Int = {
     try {
       Json.parseFull(controllerInfoString) match {
