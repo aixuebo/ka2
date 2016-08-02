@@ -100,7 +100,8 @@ object ZkUtils extends Logging {
     
   val ControllerPath = "/controller"//是json格式,解析的内容是哪个broker节点是kafka主节点,存储内容:{brokerid:5}
     /**
-controller_epoch节点的值是一个数字,kafka集群中第一个broker第一次启动时为1，以后只要集群中center controller中央控制器所在broker变更或挂掉，就会重新选举新的center controller，每次center controller变更controller_epoch值就会 + 1; 
+controller_epoch节点的值是一个数字,kafka集群中第一个broker第一次启动时为1，以后只要集群中center controller中央控制器所在broker变更或挂掉，
+    就会重新选举新的center controller，每次center controller变更controller_epoch值就会 + 1;
      */
   val ControllerEpochPath = "/controller_epoch"
   
@@ -155,6 +156,7 @@ controller_epoch节点的值是一个数字,kafka集群中第一个broker第一�
    * 总格式整理:
    * partitions = List[Map[String, Any]]
    * 其中key包含 topic,partition
+     * 表示管理员设置为topic-partition为该partition的leader级别的partition
      */
   val PreferredReplicaLeaderElectionPath = "/admin/preferred_replica_election"
 
@@ -879,7 +881,7 @@ controller_epoch节点的值是一个数字,kafka集群中第一个broker第一�
     }
   }
 
-  //读取/admin/preferred_replica_election节点信息
+  //读取/admin/preferred_replica_election节点信息,返回管理员设置的leader级别的partition
   def getPartitionsUndergoingPreferredReplicaElection(zkClient: ZkClient): Set[TopicAndPartition] = {
     // read the partitions and their new replica list
     val jsonPartitionListOpt = readDataMaybeNull(zkClient, PreferredReplicaLeaderElectionPath)._1

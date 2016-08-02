@@ -73,6 +73,10 @@ class ControllerContext(val zkClient: ZkClient,
    * key是topic-partition value是该partition对应的leader节点等信息对象
    */
   var partitionLeadershipInfo: mutable.Map[TopicAndPartition, LeaderIsrAndControllerEpoch] = mutable.Map.empty
+
+  /**
+   * 管理员设置的每一个topic-partition要分配的备份节点集合
+   */
   var partitionsBeingReassigned: mutable.Map[TopicAndPartition, ReassignedPartitionsContext] = new mutable.HashMap
   
   //判断是否topic-partition的第一个备份节点是leader节点,如果是则不处理什么,如果不是,则添加到partitionsUndergoingPreferredReplicaElection中
@@ -169,8 +173,8 @@ class ControllerContext(val zkClient: ZkClient,
  */
 object KafkaController extends Logging {
   val stateChangeLogger = new StateChangeLogger("state.change.logger")
-  val InitialControllerEpoch = 1
-  val InitialControllerEpochZkVersion = 1
+  val InitialControllerEpoch = 1 //记录当前第几次选择变更leader节点
+  val InitialControllerEpochZkVersion = 1 //记录zookeeper上版本号
 
   case class StateChangeLogger(override val loggerName: String) extends Logging
 
@@ -226,6 +230,7 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
   private val controlledShutdownPartitionLeaderSelector = new ControlledShutdownLeaderSelector(controllerContext)
   private val brokerRequestBatch = new ControllerBrokerRequestBatch(this)
 
+  //监听zookeeper的/admin/reassign_partitions节点
   private val partitionReassignedListener = new PartitionsReassignedListener(this)
   private val preferredReplicaElectionListener = new PreferredReplicaElectionListener(this)
 
@@ -653,37 +658,41 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
   private def watchIsrChangesForReassignedPartition(topic: String,
                                                     partition: Int,
                                                     reassignedPartitionContext: ReassignedPartitionsContext) {
-    val reassignedReplicas = reassignedPartitionContext.newReplicas
+    val reassignedReplicas = reassignedPartitionContext.newReplicas //新的备份节点集合
     val isrChangeListener = new ReassignedPartitionsIsrChangeListener(this, topic, partition,
       reassignedReplicas.toSet)
-    reassignedPartitionContext.isrChangeListener = isrChangeListener
+    reassignedPartitionContext.isrChangeListener = isrChangeListener //设置监听器
     // register listener on the leader and isr path to wait until they catch up with the current leader
+    //zookeeper在/brokers/topics/${topic}/partitions/${partitionId}/state注册监听器
     zkClient.subscribeDataChanges(ZkUtils.getTopicPartitionLeaderAndIsrPath(topic, partition), isrChangeListener)
   }
 
+  /**
+   * 为topic-partition添加一组新的备份节点,属于管理员管理设置范畴
+   */
   def initiateReassignReplicasForTopicPartition(topicAndPartition: TopicAndPartition,
                                         reassignedPartitionContext: ReassignedPartitionsContext) {
-    val newReplicas = reassignedPartitionContext.newReplicas
+    val newReplicas = reassignedPartitionContext.newReplicas //新的备份节点集合
     val topic = topicAndPartition.topic
     val partition = topicAndPartition.partition
-    val aliveNewReplicas = newReplicas.filter(r => controllerContext.liveBrokerIds.contains(r))
+    val aliveNewReplicas = newReplicas.filter(r => controllerContext.liveBrokerIds.contains(r))//保留活着的节点集合
     try {
-      val assignedReplicasOpt = controllerContext.partitionReplicaAssignment.get(topicAndPartition)
+      val assignedReplicasOpt = controllerContext.partitionReplicaAssignment.get(topicAndPartition) //获取该topic-partition已经分配的节点集合
       assignedReplicasOpt match {
         case Some(assignedReplicas) =>
-          if(assignedReplicas == newReplicas) {
+          if(assignedReplicas == newReplicas) {//说明相同,不需要重新分配
             throw new KafkaException("Partition %s to be reassigned is already assigned to replicas".format(topicAndPartition) +
               " %s. Ignoring request for partition reassignment".format(newReplicas.mkString(",")))
-          } else {
-            if(aliveNewReplicas == newReplicas) {
+          } else {//此时说明不相同,说明要去替换备份节点集合了
+            if(aliveNewReplicas == newReplicas) {//说明相同,表示新的备份节点集合都是活着的节点
               info("Handling reassignment of partition %s to new replicas %s".format(topicAndPartition, newReplicas.mkString(",")))
               // first register ISR change listener
               watchIsrChangesForReassignedPartition(topic, partition, reassignedPartitionContext)
-              controllerContext.partitionsBeingReassigned.put(topicAndPartition, reassignedPartitionContext)
+              controllerContext.partitionsBeingReassigned.put(topicAndPartition, reassignedPartitionContext)//添加管理中
               // mark topic ineligible for deletion for the partitions being reassigned
               deleteTopicManager.markTopicIneligibleForDeletion(Set(topic))
               onPartitionReassignment(topicAndPartition, reassignedPartitionContext)
-            } else {
+            } else {//说明管理员配置的新的备份节点集合有死的节点,因此抛异常
               // some replica in RAR is not alive. Fail partition reassignment
               throw new KafkaException("Only %s replicas out of the new set of replicas".format(aliveNewReplicas.mkString(",")) +
                 " %s for partition %s to be reassigned are alive. ".format(newReplicas.mkString(","), topicAndPartition) +
@@ -700,10 +709,11 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
     }
   }
 
+  //添加一组管理员设置的leader级别的topic-partition集合
   def onPreferredReplicaElection(partitions: Set[TopicAndPartition], isTriggeredByAutoRebalance: Boolean = false) {
     info("Starting preferred replica leader election for partitions %s".format(partitions.mkString(",")))
     try {
-      controllerContext.partitionsUndergoingPreferredReplicaElection ++= partitions
+      controllerContext.partitionsUndergoingPreferredReplicaElection ++= partitions//全局中添加映射
       deleteTopicManager.markTopicIneligibleForDeletion(partitions.map(_.topic))
       partitionStateMachine.handleStateChanges(partitions, OnlinePartition, preferredReplicaPartitionLeaderSelector)
     } catch {
@@ -822,19 +832,22 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
   //读取/admin/preferred_replica_election节点信息存储的topic-partition集合
   //判断是否topic-partition的第一个备份节点是leader节点,如果是则不处理什么,如果不是,则添加到partitionsUndergoingPreferredReplicaElection中
   private def initializePreferredReplicaElection() {
-    // initialize preferred replica election state 读取/admin/preferred_replica_election节点信息存储的topic-partition集合,即Set[TopicAndPartition]
+    // initialize preferred replica election state 读取/admin/preferred_replica_election节点信息存储的topic-partition集合,即Set[TopicAndPartition],返回管理员设置的leader级别的partition
     val partitionsUndergoingPreferredReplicaElection = ZkUtils.getPartitionsUndergoingPreferredReplicaElection(zkClient)
     // check if they are already completed or topic was deleted
-    ////检查每一个设置的topic-partition是否已经完成了第一个备份就是leader,或者该topic已经被删除了,没有partition了
+    //检查每一个设置的topic-partition是否已经完成了第一个备份就是leader,或者该topic已经被删除了,没有partition了
     val partitionsThatCompletedPreferredReplicaElection = partitionsUndergoingPreferredReplicaElection.filter { partition =>
-      val replicasOpt = controllerContext.partitionReplicaAssignment.get(partition)
+      val replicasOpt = controllerContext.partitionReplicaAssignment.get(partition)//获取该partition对应的备份节点集合
       val topicDeleted = replicasOpt.isEmpty
       //如果该partition的备份数量>0,则successful判断第一个备份节点是否是该partition的leader
       val successful =
         if(!topicDeleted) controllerContext.partitionLeadershipInfo(partition).leaderAndIsr.leader == replicasOpt.get.head else false
       successful || topicDeleted
     }
+
+    //先将全部管理员设置的leader级别的topic-partition添加到映射中
     controllerContext.partitionsUndergoingPreferredReplicaElection ++= partitionsUndergoingPreferredReplicaElection
+    //删除掉已经第一个备份节点就是管理员要求的leader节点的映射
     controllerContext.partitionsUndergoingPreferredReplicaElection --= partitionsThatCompletedPreferredReplicaElection
     info("Partitions undergoing preferred replica election: %s".format(partitionsUndergoingPreferredReplicaElection.mkString(",")))
     info("Partitions that completed preferred replica election: %s".format(partitionsThatCompletedPreferredReplicaElection.mkString(",")))
@@ -845,7 +858,7 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
   private def initializePartitionReassignment() {
     // read the partitions being reassigned from zookeeper path /admin/reassign_partitions
     /**
-     * 1.获取/admin/reassign_partitions的内容
+     * 1.获取/admin/reassign_partitions的内容,即管理员设置的每一个topic-partition对应哪些备份节点
      * 2.重新分配topic-partition,参数newReplicas是重新分配的brokerId集合,
      *  返回Map[TopicAndPartition, ReassignedPartitionsContext]
      */
@@ -858,11 +871,11 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
       //true表示当前存在的备份集合与设置新的备份集合相同
       val successful = if(!topicDeleted) replicasOpt.get == partition._2.newReplicas else false
       topicDeleted || successful
-    }.map(_._1)
+    }.map(_._1)//获取当前现状与管理员期望的相同的
     reassignedPartitions.foreach(p => removePartitionFromReassignedPartitions(p))
     var partitionsToReassign: mutable.Map[TopicAndPartition, ReassignedPartitionsContext] = new mutable.HashMap
-    partitionsToReassign ++= partitionsBeingReassigned
-    partitionsToReassign --= reassignedPartitions
+    partitionsToReassign ++= partitionsBeingReassigned //先添加全部
+    partitionsToReassign --= reassignedPartitions//再减去目前与管理员期望相同的,剩余就是还尚未完成的
     controllerContext.partitionsBeingReassigned ++= partitionsToReassign
     info("Partitions being reassigned: %s".format(partitionsBeingReassigned.toString()))
     info("Partitions already reassigned: %s".format(reassignedPartitions.toString()))
@@ -870,11 +883,17 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
   }
 
   private def initializeTopicDeletion() {
-    val topicsQueuedForDeletion = ZkUtils.getChildrenParentMayNotExist(zkClient, ZkUtils.DeleteTopicsPath).toSet
+    val topicsQueuedForDeletion = ZkUtils.getChildrenParentMayNotExist(zkClient, ZkUtils.DeleteTopicsPath).toSet//已经删除的topic集合
+    /**
+     * 找到broker节点已经死了,但是在该节点上还有备份的topic集合
+     */
     val topicsWithReplicasOnDeadBrokers = controllerContext.partitionReplicaAssignment.filter { case(partition, replicas) =>
       replicas.exists(r => !controllerContext.liveBrokerIds.contains(r)) }.keySet.map(_.topic)
+    //说明该topic管理员还为其分配了partition的leader节点集合
     val topicsForWhichPartitionReassignmentIsInProgress = controllerContext.partitionsUndergoingPreferredReplicaElection.map(_.topic)
+    //说明管理员还为该topic分配partition集合
     val topicsForWhichPreferredReplicaElectionIsInProgress = controllerContext.partitionsBeingReassigned.keySet.map(_.topic)
+
     val topicsIneligibleForDeletion = topicsWithReplicasOnDeadBrokers | topicsForWhichPartitionReassignmentIsInProgress |
                                   topicsForWhichPreferredReplicaElectionIsInProgress
     info("List of topics to be deleted: %s".format(topicsQueuedForDeletion.mkString(",")))
@@ -1048,18 +1067,19 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
     }
   }
 
+  //移除该topic-partition管理员分配的备份节点集合相关内容,因为这个topic-partition目前的现状与管理员期待的相同
   def removePartitionFromReassignedPartitions(topicAndPartition: TopicAndPartition) {
     if(controllerContext.partitionsBeingReassigned.get(topicAndPartition).isDefined) {
       // stop watching the ISR changes for this partition
       zkClient.unsubscribeDataChanges(ZkUtils.getTopicPartitionLeaderAndIsrPath(topicAndPartition.topic, topicAndPartition.partition),
-        controllerContext.partitionsBeingReassigned(topicAndPartition).isrChangeListener)
+        controllerContext.partitionsBeingReassigned(topicAndPartition).isrChangeListener)//不再关注监听
     }
     // read the current list of reassigned partitions from zookeeper
-    val partitionsBeingReassigned = ZkUtils.getPartitionsBeingReassigned(zkClient)
+    val partitionsBeingReassigned = ZkUtils.getPartitionsBeingReassigned(zkClient)//读取管理员分配topic-partition在哪些节点上做备份的配置
     // remove this partition from that list
-    val updatedPartitionsBeingReassigned = partitionsBeingReassigned - topicAndPartition
+    val updatedPartitionsBeingReassigned = partitionsBeingReassigned - topicAndPartition //抛出该topic-partition,因为已经分配完成
     // write the new list to zookeeper
-    ZkUtils.updatePartitionReassignmentData(zkClient, updatedPartitionsBeingReassigned.mapValues(_.newReplicas))
+    ZkUtils.updatePartitionReassignmentData(zkClient, updatedPartitionsBeingReassigned.mapValues(_.newReplicas))//重新写zookeeper
     // update the cache. NO-OP if the partition's reassignment was never started
     controllerContext.partitionsBeingReassigned.remove(topicAndPartition)
   }
@@ -1304,12 +1324,14 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
 
 /**
  * Starts the partition reassignment process unless -
- * 1. Partition previously existed
- * 2. New replicas are the same as existing replicas
- * 3. Any replica in the new set of replicas are dead
+ * 1. Partition previously existed partition重新分配已经存在了
+ * 2. New replicas are the same as existing replicas 配分的节点与现在存在的相同,不需要重新备份
+ * 3. Any replica in the new set of replicas are dead 任何一个备份已经死掉了
  * If any of the above conditions are satisfied, it logs an error and removes the partition from list of reassigned
  * partitions.
+ * 以上三点任何一个满足了,都只是记录日志,并且从列表中移除该partition,不再进行分配
  * 为/admin/reassign_partitions节点注册事件PartitionsReassignedListener
+ * 监听意义是 管理员为哪些topic-partition分配了备份节点集合
  */
 class PartitionsReassignedListener(controller: KafkaController) extends IZkDataListener with Logging {
   this.logIdent = "[PartitionsReassignedListener on " + controller.config.brokerId + "]: "
@@ -1325,19 +1347,21 @@ class PartitionsReassignedListener(controller: KafkaController) extends IZkDataL
   def handleDataChange(dataPath: String, data: Object) {
     debug("Partitions reassigned listener fired for path %s. Record partitions to be reassigned %s"
       .format(dataPath, data))
+    // 返回值是要将topic-partition分配到哪些节点去做备份 Map[TopicAndPartition, Seq[Int]]
     val partitionsReassignmentData = ZkUtils.parsePartitionReassignmentData(data.toString)
     val partitionsToBeReassigned = inLock(controllerContext.controllerLock) {
       partitionsReassignmentData.filterNot(p => controllerContext.partitionsBeingReassigned.contains(p._1))
-    }
+    }//过滤掉正在处理中的,即目前正在处理中的是不算的
     partitionsToBeReassigned.foreach { partitionToBeReassigned =>
       inLock(controllerContext.controllerLock) {
-        if(controller.deleteTopicManager.isTopicQueuedUpForDeletion(partitionToBeReassigned._1.topic)) {
+        if(controller.deleteTopicManager.isTopicQueuedUpForDeletion(partitionToBeReassigned._1.topic)) {//说明当前topic已经被删除了
           error("Skipping reassignment of partition %s for topic %s since it is currently being deleted"
             .format(partitionToBeReassigned._1, partitionToBeReassigned._1.topic))
-          controller.removePartitionFromReassignedPartitions(partitionToBeReassigned._1)
-        } else {
+          controller.removePartitionFromReassignedPartitions(partitionToBeReassigned._1)//partitionToBeReassigned._1 表示TopicAndPartition
+          //上面代码表示删除该topic在zookeeper中的配置,即不需要为该topic进行管理topic-partition-备份节点集合映射
+        } else {//说明当前topic没有被删除
           val context = new ReassignedPartitionsContext(partitionToBeReassigned._2)
-          controller.initiateReassignReplicasForTopicPartition(partitionToBeReassigned._1, context)
+          controller.initiateReassignReplicasForTopicPartition(partitionToBeReassigned._1, context)//添加新的映射.表示正常处理中
         }
       }
     }
@@ -1354,6 +1378,13 @@ class PartitionsReassignedListener(controller: KafkaController) extends IZkDataL
   }
 }
 
+/**
+ * 一个监听器,当为topic-partition分配新的备份节点集合的时候,产生一个新的监听器
+ * @param controller
+ * @param topic
+ * @param partition
+ * @param reassignedReplicas 新的备份节点集合
+ */
 class ReassignedPartitionsIsrChangeListener(controller: KafkaController, topic: String, partition: Int,
                                             reassignedReplicas: Set[Int])
   extends IZkDataListener with Logging {
@@ -1372,14 +1403,16 @@ class ReassignedPartitionsIsrChangeListener(controller: KafkaController, topic: 
       val topicAndPartition = TopicAndPartition(topic, partition)
       try {
         // check if this partition is still being reassigned or not
-        controllerContext.partitionsBeingReassigned.get(topicAndPartition) match {
+        controllerContext.partitionsBeingReassigned.get(topicAndPartition) match {//确定是否当前topic-partition正在被分配备份节点集合过程中
           case Some(reassignedPartitionContext) =>
             // need to re-read leader and isr from zookeeper since the zkclient callback doesn't return the Stat object
+            //获取/brokers/topics/ ${topic}/partitions/${partitionId}/state路径下的内容,生成LeaderIsrAndControllerEpoch对象
             val newLeaderAndIsrOpt = ZkUtils.getLeaderAndIsrForPartition(zkClient, topic, partition)
             newLeaderAndIsrOpt match {
               case Some(leaderAndIsr) => // check if new replicas have joined ISR
+                //新的备份节点结婚 与 当前"isr": [同步副本组brokerId列表] 获取交集
                 val caughtUpReplicas = reassignedReplicas & leaderAndIsr.isr.toSet
-                if(caughtUpReplicas == reassignedReplicas) {
+                if(caughtUpReplicas == reassignedReplicas) {//交集与新的备份节点集合相同,说明匹配成功
                   // resume the partition reassignment process
                   info("%d/%d replicas have caught up with the leader for partition %s being reassigned."
                     .format(caughtUpReplicas.size, reassignedReplicas.size, topicAndPartition) +
@@ -1392,7 +1425,7 @@ class ReassignedPartitionsIsrChangeListener(controller: KafkaController, topic: 
                     "Replica(s) %s still need to catch up".format((reassignedReplicas -- leaderAndIsr.isr.toSet).mkString(",")))
                 }
               case None => error("Error handling reassignment of partition %s to replicas %s as it was never created"
-                .format(topicAndPartition, reassignedReplicas.mkString(",")))
+                .format(topicAndPartition, reassignedReplicas.mkString(",")))//说明还没有leader等信息内容
             }
           case None =>
         }
@@ -1414,6 +1447,7 @@ class ReassignedPartitionsIsrChangeListener(controller: KafkaController, topic: 
 /**
  * Starts the preferred replica leader election for the list of partitions specified under
  * /admin/preferred_replica_election -
+ * 管理员为一个topic-partition分配leader的时候监听器
  */
 class PreferredReplicaElectionListener(controller: KafkaController) extends IZkDataListener with Logging {
   this.logIdent = "[PreferredReplicaElectionListener on " + controller.config.brokerId + "]: "
@@ -1429,17 +1463,18 @@ class PreferredReplicaElectionListener(controller: KafkaController) extends IZkD
     debug("Preferred replica election listener fired for path %s. Record partitions to undergo preferred replica election %s"
             .format(dataPath, data.toString))
     inLock(controllerContext.controllerLock) {
+      //解析新的内容,即哪些leader级别的topic-partition
       val partitionsForPreferredReplicaElection = PreferredReplicaLeaderElectionCommand.parsePreferredReplicaElectionData(data.toString)
       if(controllerContext.partitionsUndergoingPreferredReplicaElection.size > 0)
         info("These partitions are already undergoing preferred replica election: %s"
           .format(controllerContext.partitionsUndergoingPreferredReplicaElection.mkString(",")))
-      val partitions = partitionsForPreferredReplicaElection -- controllerContext.partitionsUndergoingPreferredReplicaElection
-      val partitionsForTopicsToBeDeleted = partitions.filter(p => controller.deleteTopicManager.isTopicQueuedUpForDeletion(p.topic))
-      if(partitionsForTopicsToBeDeleted.size > 0) {
+      val partitions = partitionsForPreferredReplicaElection -- controllerContext.partitionsUndergoingPreferredReplicaElection //新增的leader级别的topic-partition
+      val partitionsForTopicsToBeDeleted = partitions.filter(p => controller.deleteTopicManager.isTopicQueuedUpForDeletion(p.topic))//获取已经删除的topic
+      if(partitionsForTopicsToBeDeleted.size > 0) {//打印日志
         error("Skipping preferred replica election for partitions %s since the respective topics are being deleted"
           .format(partitionsForTopicsToBeDeleted))
       }
-      controller.onPreferredReplicaElection(partitions -- partitionsForTopicsToBeDeleted)
+      controller.onPreferredReplicaElection(partitions -- partitionsForTopicsToBeDeleted)//抛出已经删除的topic
     }
   }
 

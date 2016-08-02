@@ -1,0 +1,57 @@
+一、KafkaController 静态类
+1.val InitialControllerEpoch = 1 //记录当前第几次选择变更leader节点
+2.val InitialControllerEpochZkVersion = 1 //记录zookeeper上版本号
+3.parseControllerId(controllerInfoString: String)
+  读取zookeeper上的json,该json内容是当前leader节点是哪个节点,返回leader节点的ID
+
+二、ControllerContext  管理上下文信息
+属性
+1.var controllerChannelManager: ControllerChannelManager = null
+2.var shuttingDownBrokerIds: mutable.Set[Int] = mutable.Set.empty//已经进行shuttingDown的Broker节点ID集合
+3.初始化的时候,通过zookeeper的/brokers/ids得到当前集群所有的broker节点集合以及节点ID集合
+  private var liveBrokersUnderlying: Set[Broker] = Set.empty//目前存活的Broker节点集合
+  private var liveBrokerIdsUnderlying: Set[Int] = Set.empty//目前存活的Broker节点ID集合
+4.var allTopics: Set[String] = Set.empty 整个kafka集群管理所有的topic集合
+  初始化的时候,通过zookeeper的/brokers/topics获取所有的topic名称集合
+5.var partitionReplicaAssignment: mutable.Map[TopicAndPartition, Seq[Int]] = mutable.Map.empty
+初始化的时候,通过zookeeper的/brokers/topics/${topic}的内容{partitions:{"1":[11,12,14],"2":[11,16,19]} }
+得到topic-partition对应的备份节点集合
+6.var partitionLeadershipInfo: mutable.Map[TopicAndPartition, LeaderIsrAndControllerEpoch] = mutable.Map.empty
+通过5,得到每一个topic-partition的备份集合,循环每一个topic-partition,
+  初始化的时候,通过zookeeper的/brokers/topics/${topic}/partitions/${partitionId}/state路径下的内容,生成LeaderIsrAndControllerEpoch对象,该对象可以获取该partition的leader等信息
+7.var partitionsUndergoingPreferredReplicaElection: mutable.Set[TopicAndPartition] = new mutable.HashSet
+初始化,读取zookeeper中/admin/preferred_replica_election节点存储的topic-partition集合,这些集合意义是管理员设置的leader级别的topic-partition
+这个属性表示当前管理员设置是leader级别的partition,需要后续将这些partition的leader节点转换成该节点,转换成功后就可以将其删除掉了,这里面的内容就是在处理中的数据
+注意:表示正在过程中的情况
+8.var partitionsBeingReassigned: mutable.Map[TopicAndPartition, ReassignedPartitionsContext] = new mutable.HashMap
+初始化,读取zookeeper中/admin/reassign_partitions节点内容--解析成管理员分配的topic-partition-在哪些节点集合中备份--除去目前已经在这些节点备份--获取剩余还尚未按照管理员想法的集合
+注意:表示正在过程中的情况
+9.val correlationId: AtomicInteger = new AtomicInteger(0)
+
+
+方法
+1.def partitionsOnBroker(brokerId: Int): Set[TopicAndPartition]
+循环partitionReplicaAssignment--每一个topic-partition在哪些节点有备份---查看备份节点集合是否包含参数集合---返回该节点上存储哪些topic-partition
+2.def replicasOnBrokers(brokerIds: Set[Int]): Set[PartitionAndReplica]
+与方法1一样,只是参数是节点集合,即在节点集合中任意节点出现的topic-partition都要被返回。
+new PartitionAndReplica(topicAndPartition.topic, topicAndPartition.partition, brokerId) 返回值是topic-partition在哪个节点上存在
+3.def replicasForTopic(topic: String): Set[PartitionAndReplica]
+循环partitionReplicaAssignment--每一个topic-partition在哪些节点有备份---查看参数topic所在partition所有备份都分布在哪些节点上
+4.def partitionsForTopic(topic: String): collection.Set[TopicAndPartition]
+循环partitionReplicaAssignment--每一个topic-partition在哪些节点有备份---查看参数topic所对应的所有topic-partition集合
+5.def allLiveReplicas(): Set[PartitionAndReplica]
+寻找所有活着的节点集合--在这些节点集合上存在哪些topic-partition-brokerid集合
+6.def replicasForPartition(partitions: collection.Set[TopicAndPartition]): collection.Set[PartitionAndReplica]
+循环partitionReplicaAssignment--找到符合参数topic-partition的备份集合--生成topic-partition-brokerid集合
+7.def removeTopic(topic: String)
+删除一个topic的映射信息,即属性的4 5 6
+
+三、onControllerFailover 当该节点被升为leader节点的时候调用该函数
+1.读取/controller_epoch内容,即当前第几次更换leader,并且将其值+1后,存储到zookeeper上
+2.监听zookeeper上/admin/reassign_partitions节点,执行PartitionsReassignedListener类
+监听意义是 管理员为哪些topic-partition分配了备份节点集合
+3.initializeControllerContext 初始化集群的ControllerContext上下文信息
+
+
+
+
