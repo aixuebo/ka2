@@ -299,7 +299,7 @@ object AdminUtils extends Logging {
    * 内容格式:{version:1,config:{key=value,key=value}}
    */
   def fetchTopicConfig(zkClient: ZkClient, topic: String): Properties = {
-    val str: String = zkClient.readData(ZkUtils.getTopicConfigPath(topic), true)//获取该topic路径对应的数据,即记录该topic的配置信息
+    val str: String = zkClient.readData(ZkUtils.getTopicConfigPath(topic), true)//获取该topic的配置信息
     val props = new Properties()
     if(str != null) {
       Json.parseFull(str) match {

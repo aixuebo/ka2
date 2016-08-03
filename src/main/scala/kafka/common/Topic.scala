@@ -22,7 +22,7 @@ import kafka.server.OffsetManager
 
 
 object Topic {
-  val legalChars = "[a-zA-Z0-9\\._\\-]"//topic的那么组成正则
+  val legalChars = "[a-zA-Z0-9\\._\\-]"//topic的正则规则
   private val maxNameLength = 255//topic的name最长长度
   private val rgx = new Regex(legalChars + "+")
 

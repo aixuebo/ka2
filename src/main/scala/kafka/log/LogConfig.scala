@@ -43,7 +43,7 @@ object Defaults {
   val DeleteRetentionMs = 24 * 60 * 60 * 1000L
   val MinCleanableDirtyRatio = 0.5
   val Compact = false//true表示老的segments要被删除,false要用clean线程去删除文件
-  val UncleanLeaderElectionEnable = true
+  val UncleanLeaderElectionEnable = true ////表示是否允许有脏的leader,即用于PartitionLeaderSelector--OfflinePartitionLeaderSelector中,false表示如果partition的ISR同步节点没有一个是活着的节点的时候,则不允许,要抛异常,true表示允许,此时会从备份节点中选择一个来做同步节点
   
   val MinInSyncReplicas = 1 //表示partition的最小同步数量,即达到该数量的备份数,就可以认为是成功备份了
 }
@@ -83,7 +83,7 @@ case class LogConfig(val segmentSize: Int = Defaults.SegmentSize,//一个segment
                      val deleteRetentionMs: Long = Defaults.DeleteRetentionMs,
                      val minCleanableRatio: Double = Defaults.MinCleanableDirtyRatio,//用于clean线程
                      val compact: Boolean = Defaults.Compact,//true表示老的segments要被删除,false要用clean线程去删除文件
-                     val uncleanLeaderElectionEnable: Boolean = Defaults.UncleanLeaderElectionEnable,
+                     val uncleanLeaderElectionEnable: Boolean = Defaults.UncleanLeaderElectionEnable,//表示是否允许有脏的leader,即用于PartitionLeaderSelector--OfflinePartitionLeaderSelector中,false表示如果partition的ISR同步节点没有一个是活着的节点的时候,则不允许,要抛异常,true表示允许,此时会从备份节点中选择一个来做同步节点
                      val minInSyncReplicas: Int = Defaults.MinInSyncReplicas) {
 
   def toProps: Properties = {

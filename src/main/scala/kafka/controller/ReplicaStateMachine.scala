@@ -67,7 +67,7 @@ import kafka.utils.Utils._
  *                        ReplicaDeletionSuccessful
  *                        a.如果一个备份对象成功删除,就将其设置为NonExistentReplica状态
  *                        b.该状态由ReplicaDeletionSuccessful转变过来
- *                        
+ * 该类管理着每一个topic-partition-一个节点备份的状态
  */
 class ReplicaStateMachine(controller: KafkaController) extends Logging {
   private val controllerContext = controller.controllerContext
@@ -75,9 +75,11 @@ class ReplicaStateMachine(controller: KafkaController) extends Logging {
   private val zkClient = controllerContext.zkClient
   //存储每一个topic-partition-replica组合的的状态映射关系
   private val replicaState: mutable.Map[PartitionAndReplica, ReplicaState] = mutable.Map.empty
-  private val brokerChangeListener = new BrokerChangeListener()//对/brokers/ids节点进行监听
+
+  private val brokerChangeListener = new BrokerChangeListener()//对/brokers/ids节点进行监听,监听是否有新增节点或者删除节点发生
+
   private val brokerRequestBatch = new ControllerBrokerRequestBatch(controller)
-  private val hasStarted = new AtomicBoolean(false)
+  private val hasStarted = new AtomicBoolean(false) //标识是否已经开始了
   private val stateChangeLogger = KafkaController.stateChangeLogger
 
   this.logIdent = "[Replica state machine on controller " + controller.config.brokerId + "]: "
@@ -131,11 +133,11 @@ class ReplicaStateMachine(controller: KafkaController) extends Logging {
    * @param replicas     The list of replicas (brokers) that need to be transitioned to the target state
    * @param targetState  The state that the replicas should be moved to
    * The controller's allLeaders cache should have been updated before this
-   * 将参数1中的集合每一个状态都设置为参数2
+   * 将参数1中的集合每一个状态都设置为参数2状态
    * 作用:更新PartitionAndReplica集合的状态,并且有回调
    */
   def handleStateChanges(replicas: Set[PartitionAndReplica], targetState: ReplicaState,
-                         callbacks: Callbacks = (new CallbackBuilder).build) {
+                         callbacks: Callbacks = (new CallbackBuilder).build) {//回调函数
     if(replicas.size > 0) {
       //日志说明,更新replicas集合的状态,目标状态为targetState
       info("Invoking state change to %s for replicas %s".format(targetState, replicas.mkString(",")))
@@ -190,7 +192,7 @@ class ReplicaStateMachine(controller: KafkaController) extends Logging {
                         callbacks: Callbacks) {
     val topic = partitionAndReplica.topic
     val partition = partitionAndReplica.partition
-    val replicaId = partitionAndReplica.replica
+    val replicaId = partitionAndReplica.replica //该备份节点
     val topicAndPartition = TopicAndPartition(topic, partition)
     if (!hasStarted.get)
       throw new StateChangeFailedException(("Controller %d epoch %d initiated state change of replica %d for partition %s " +
@@ -200,8 +202,8 @@ class ReplicaStateMachine(controller: KafkaController) extends Logging {
     val currState = replicaState.getOrElseUpdate(partitionAndReplica, NonExistentReplica)
     try {
       //获取该topic-partition对象,对应的partition的备份的ID集合
-      val replicaAssignment = controllerContext.partitionReplicaAssignment(topicAndPartition)
-      targetState match {
+      val replicaAssignment = controllerContext.partitionReplicaAssignment(topicAndPartition) //该topic-partition所在备份节点集合
+      targetState match {//根据目标状态,进行分别处理
         case NewReplica =>
           //校验 当前的PartitionAndReplica对象所对应的备份状态,应该在参数fromStates集合中,并且最终目的是要把当前状态移动到targetState状态上
           assertValidPreviousStates(partitionAndReplica, List(NonExistentReplica), targetState)
@@ -213,7 +215,7 @@ class ReplicaStateMachine(controller: KafkaController) extends Logging {
               if(leaderIsrAndControllerEpoch.leaderAndIsr.leader == replicaId) //发现自己就是leader,这个是不允许的
                 throw new StateChangeFailedException("Replica %d for partition %s cannot be moved to NewReplica"
                   .format(replicaId, topicAndPartition) + "state as it is being requested to become leader")
-              //将topic-partition的follow节点集合brokerIds添加到leader集合内,即添加leader和follow的对应关系
+              //将为topic-partition新增follow节点集合brokerIds
               brokerRequestBatch.addLeaderAndIsrRequestForBrokers(List(replicaId),
                                                                   topic, partition, leaderIsrAndControllerEpoch,
                                                                   replicaAssignment)
@@ -319,7 +321,7 @@ class ReplicaStateMachine(controller: KafkaController) extends Logging {
   def areAllReplicasForTopicDeleted(topic: String): Boolean = {
     val replicasForTopic = controller.controllerContext.replicasForTopic(topic)//通过topic获取备份集合,set[PartitionAndReplica]
     val replicaStatesForTopic = replicasForTopic.map(r => (r, replicaState(r))).toMap//转化成每一个PartitionAndReplica,对应的备份对象状态 映射关系 Map[PartitionAndReplica,ReplicaState]
-    debug("Are all replicas for topic %s deleted %s".format(topic, replicaStatesForTopic))
+    debug("Are all replicas for topic %s deleted %s".format(topic, replicaStatesForTopic)) //打印该topic每一个partition的每一个备份节点的删除状态
     //r指代PartitionAndReplica,ReplicaState,因此r._2为ReplicaState
     //因此如果有任意一个ReplicaState不是ReplicaDeletionSuccessful,则说明topic所有的备份对象有至少一个没成功删除,因此返回false
     replicaStatesForTopic.foldLeft(true)((deletionState, r) => deletionState && r._2 == ReplicaDeletionSuccessful)
@@ -377,7 +379,7 @@ class ReplicaStateMachine(controller: KafkaController) extends Logging {
   /**
    * Invoked on startup of the replica's state machine to set the initial state for replicas of all existing partitions
    * in zookeeper
-   * 初始化每一个topic--partition--replicaId对应的状态
+   * 初始化每一个topic--partition--replicaId对应的状态,所有的状态要么是在线正常状态,要么是失败状态,两者之一
    */
   private def initializeReplicaState() {
     //key是topic-partition对象,value是该partition的备份的ID集合,进行循环每一个
@@ -394,14 +396,18 @@ class ReplicaStateMachine(controller: KafkaController) extends Logging {
             // mark replicas on dead brokers as failed for topic deletion, if they belong to a topic to be deleted.
             // This is required during controller failover since during controller failover a broker can go down,
             // so the replicas on that broker should be moved to ReplicaDeletionIneligible to be on the safer side.
+            //标记该备份数据为删除失败,因为该备份节点已经死了,但是不知道是不是会真的死,可能会重启后依然活着,因此就表示为失败即可。
+            //如果该topic被设置为删除,则后续会被删除掉的,因此现在设置成失败会更安全一些
             replicaState.put(partitionAndReplica, ReplicaDeletionIneligible)
         }
       }
     }
   }
 
-  //查询在该brokerId节点上有topic-partition备份的 topic-partition集合
-  //目的是当brokerId节点挂了,则找到该节点上所有的topic-partition备份集合
+  /**
+   * 循环每一个topic-partition-备份节点集合,找到该brokerId节点上都有哪些topic-partition集合,返回Seq[TopicAndPartition]
+   * 目的是当brokerId节点挂了,则找到该节点上所有的topic-partition备份集合
+   */
   def partitionsAssignedToBroker(topics: Seq[String], brokerId: Int):Seq[TopicAndPartition] = {
     //key是topic-partition对象,value是该partition的备份的ID集合
     //在上面定义的集合中过滤,_2获取的是partition的备份的ID集合,只要该集合有brokerId,则返回该topic-partition对象集合
@@ -411,6 +417,8 @@ class ReplicaStateMachine(controller: KafkaController) extends Logging {
   /**
    * This is the zookeeper listener that triggers all the state transitions for a replica
    * 对/brokers/ids节点监听,当节点有变化的时候调用该函数
+   *
+   * 说明有新增或者死掉的节点存在
    */
   class BrokerChangeListener() extends IZkChildListener with Logging {
     this.logIdent = "[BrokerChangeListener on Controller " + controller.config.brokerId + "]: "
@@ -439,9 +447,9 @@ class ReplicaStateMachine(controller: KafkaController) extends Logging {
               newBrokers.foreach(controllerContext.controllerChannelManager.addBroker(_))
               deadBrokerIds.foreach(controllerContext.controllerChannelManager.removeBroker(_))
               if(newBrokerIds.size > 0)
-                controller.onBrokerStartup(newBrokerIds.toSeq)
+                controller.onBrokerStartup(newBrokerIds.toSeq) //通知controller该节点集合刚刚被新增加
               if(deadBrokerIds.size > 0)
-                controller.onBrokerFailure(deadBrokerIds.toSeq)
+                controller.onBrokerFailure(deadBrokerIds.toSeq) //通知controller该节点集合删除了
             } catch {
               case e: Throwable => error("Error while handling broker changes", e)
             }

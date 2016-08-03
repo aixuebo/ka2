@@ -455,6 +455,7 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
   /**
    * This callback is invoked by the replica state machine's broker change listener, with the list of newly started
    * brokers as input. It does the following -
+   * 当新增节点加入的时候,调用该方法,是ReplicaStateMachine类对/brokers/ids节点进行监听,监听是否有新增节点或者删除节点时触发的
    * 1. Triggers the OnlinePartition state change for all new/offline partitions
    * 2. It checks whether there are reassigned replicas assigned to any newly started brokers.  If
    *    so, it performs the reassignment logic for each topic/partition.
@@ -498,6 +499,7 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
   /**
    * This callback is invoked by the replica state machine's broker change listener with the list of failed brokers
    * as input. It does the following -
+   * 当节点被删除的时候,调用该方法,是ReplicaStateMachine类对/brokers/ids节点进行监听,监听是否有新增节点或者删除节点时触发的
    * 1. Mark partitions with dead leaders as offline
    * 2. Triggers the OnlinePartition state change for all new/offline partitions
    * 3. Invokes the OfflineReplica state change on the input list of newly started brokers

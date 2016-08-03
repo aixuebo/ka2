@@ -30,6 +30,9 @@ import kafka.common.TopicAndPartition
 import kafka.api.RequestOrResponse
 import collection.Set
 
+/**
+ * 该类表示该controller与其他活着的节点通信
+ */
 class ControllerChannelManager (private val controllerContext: ControllerContext, config: KafkaConfig) extends Logging {
   //key是管理与哪个broker节点建立,value:与该节点连接的各种数据的组装对象
   private val brokerStateInfo = new HashMap[Int, ControllerBrokerStateInfo]
@@ -48,7 +51,7 @@ class ControllerChannelManager (private val controllerContext: ControllerContext
 
   //关闭与每一个节点的线程
   def shutdown() = {
-    brokerLock synchronized {
+    brokerLock synchronized {//移除每一个节点的连接
       brokerStateInfo.foreach(brokerState => removeExistingBroker(brokerState._1))
     }
   }
@@ -71,19 +74,23 @@ class ControllerChannelManager (private val controllerContext: ControllerContext
   def addBroker(broker: Broker) {
     // be careful here. Maybe the startup() API has already started the request send thread
     brokerLock synchronized {
-      if(!brokerStateInfo.contains(broker.id)) {
-        addNewBroker(broker)
-        startRequestSendThread(broker.id)
+      if(!brokerStateInfo.contains(broker.id)) {//说明该节点不存在连接的客户端
+        addNewBroker(broker)//创建与该节点的连接
+        startRequestSendThread(broker.id)//开启客户端的线程处理队列信息
       }
     }
   }
 
+  //移除一个节点,即不会与该节点进行通讯了
   def removeBroker(brokerId: Int) {
     brokerLock synchronized {
       removeExistingBroker(brokerId)
     }
   }
 
+  /**
+   * 该leader的controller要与参数节点建立连接
+   */
   private def addNewBroker(broker: Broker) {
     //为每一个Broker创建一个队列,队列缓存的是一组元组
     val messageQueue = new LinkedBlockingQueue[(RequestOrResponse, (RequestOrResponse) => Unit)](config.controllerMessageQueueSize)
@@ -92,7 +99,7 @@ class ControllerChannelManager (private val controllerContext: ControllerContext
     val channel = new BlockingChannel(broker.host, broker.port,
       BlockingChannel.UseDefaultBufferSize,
       BlockingChannel.UseDefaultBufferSize,
-      config.controllerSocketTimeoutMs)
+      config.controllerSocketTimeoutMs) //建立连接该节点的客户端
     
     //线程,按照顺序从队列中获取一个请求,发送到toBroker服务器,接收response数据,调用队列的回调函数
     val requestThread = new RequestSendThread(config.brokerId, controllerContext, broker, messageQueue, channel)
@@ -104,10 +111,10 @@ class ControllerChannelManager (private val controllerContext: ControllerContext
   //关闭与该节点的链接,情况请求队列,注意 如果队列里面有数据,也不会被请求了
   private def removeExistingBroker(brokerId: Int) {
     try {
-      brokerStateInfo(brokerId).channel.disconnect()
-      brokerStateInfo(brokerId).messageQueue.clear()
-      brokerStateInfo(brokerId).requestSendThread.shutdown()
-      brokerStateInfo.remove(brokerId)
+      brokerStateInfo(brokerId).channel.disconnect()//关闭通往渠道的客户端流
+      brokerStateInfo(brokerId).messageQueue.clear()//清空要发送的数据
+      brokerStateInfo(brokerId).requestSendThread.shutdown()//结束发送数据的线程
+      brokerStateInfo.remove(brokerId)//移除该映射,即不会在往该服务器发送数据
     }catch {
       case e: Throwable => error("Error while removing broker by the controller", e)
     }
@@ -124,9 +131,9 @@ class ControllerChannelManager (private val controllerContext: ControllerContext
 //线程,按照顺序从队列中获取一个请求,发送到toBroker服务器,接收response数据,调用队列的回调函数
 class RequestSendThread(val controllerId: Int,//当前controller的broker节点ID
                         val controllerContext: ControllerContext,//上下文对象
-                        val toBroker: Broker,//连接到哪个broker,该对象是服务器端
+                        val toBroker: Broker,//连接到哪个broker,该对象是服务器端broker对象
                         val queue: BlockingQueue[(RequestOrResponse, (RequestOrResponse) => Unit)],//存储队列
-                        val channel: BlockingChannel)//controllerId向toBroker建立连接后的流
+                        val channel: BlockingChannel)//controllerId向toBroker建立连接后的流,即连接到远程broker节点的客户端
   extends ShutdownableThread("Controller-%d-to-broker-%d-send-thread".format(controllerId, toBroker.id)) {
   
   private val lock = new Object()
@@ -137,8 +144,8 @@ class RequestSendThread(val controllerId: Int,//当前controller的broker节点I
   //不断被线程的run方法调用
   override def doWork(): Unit = {
     val queueItem = queue.take()//取出一组元组
-    val request = queueItem._1
-    val callback = queueItem._2
+    val request = queueItem._1 //请求参数
+    val callback = queueItem._2 //回调函数,该函数也接受一个参数,无返回值
     var receive: Receive = null
     try {
       lock synchronized {
@@ -147,9 +154,9 @@ class RequestSendThread(val controllerId: Int,//当前controller的broker节点I
           // if a broker goes down for a long time, then at some point the controller's zookeeper listener will trigger a
           // removeBroker which will invoke shutdown() on this thread. At that point, we will stop retrying.
           try {
-            channel.send(request)
-            receive = channel.receive()
-            isSendSuccessful = true
+            channel.send(request) //发送请求
+            receive = channel.receive() //接收回复
+            isSendSuccessful = true //设置接收回复成功
           } catch {
             //如果出现异常,则重新连接broker,并且重新发送信息
             case e: Throwable => // if the send was not successful, reconnect to broker and resend the message
@@ -210,6 +217,7 @@ class ControllerBrokerRequestBatch(controller: KafkaController) extends  Logging
   val controllerId: Int = controller.config.brokerId
   val clientId: String = controller.clientId
   //key是节点ID,value是一个Map,key是元组topic-partition组成,value是该partition对应的PartitionStateInfo对象
+  //即brokerID,Map<topic-partition,PartitionStateInfo>
   val leaderAndIsrRequestMap = new mutable.HashMap[Int, mutable.HashMap[(String, Int), PartitionStateInfo]]
   //key是节点ID,value是该节点上等待删除的备份集合,
   //StopReplicaRequestInfo表示要删除的一个partition备份信息,包含partition-topic-brokerId信息,是否删除该partition,以及回调函数
@@ -231,14 +239,14 @@ class ControllerBrokerRequestBatch(controller: KafkaController) extends  Logging
   }
 
   /**
-   * 该方法作用流程:
-   * a.为参数1 brokerIds集合都是参数2和3组成的topic-partition上的备份节点的follow集合
-   * b.参数leaderIsrAndControllerEpoch表示该topic-partition上leader等信息
-   * c.参数replicas,表示已知该topic-partition上备份在哪些broker节点集合中
-   * d.参数callback表示执行完调用回调函数
-   * 
+   * @param brokerIds 将要新添加的节点集合
+   * @param topic 为哪个topic-partition添加follow节点
+   * @param partition
+   * @param leaderIsrAndControllerEpoch 该topic-partition当前leader详细信息
+   * @param replicas 当前topic-partition已经存在了哪些备份节点集合
+   * @param callback 回调函数
    * 主要作用:
-   * 将topic-partition的follow节点集合brokerIds添加到leader集合内,即添加leader和follow的对应关系
+   * 为该topic-partition添加一组brokerIds集合作为follow节点
    */
   def addLeaderAndIsrRequestForBrokers(brokerIds: Seq[Int], topic: String, partition: Int,
                                        leaderIsrAndControllerEpoch: LeaderIsrAndControllerEpoch,
@@ -281,7 +289,7 @@ class ControllerBrokerRequestBatch(controller: KafkaController) extends  Logging
       val leaderIsrAndControllerEpochOpt = controllerContext.partitionLeadershipInfo.get(partition)
       leaderIsrAndControllerEpochOpt match {
         case Some(leaderIsrAndControllerEpoch) =>
-          val replicas = controllerContext.partitionReplicaAssignment(partition).toSet //该partition所在节点集合
+          val replicas = controllerContext.partitionReplicaAssignment(partition).toSet //该partition所在备份节点集合
           val partitionStateInfo = if (beingDeleted) {
             val leaderAndIsr = new LeaderAndIsr(LeaderAndIsr.LeaderDuringDelete, leaderIsrAndControllerEpoch.leaderAndIsr.isr)
             PartitionStateInfo(LeaderIsrAndControllerEpoch(leaderAndIsr, leaderIsrAndControllerEpoch.controllerEpoch), replicas)
@@ -356,9 +364,9 @@ class ControllerBrokerRequestBatch(controller: KafkaController) extends  Logging
   }
 }
 
-case class ControllerBrokerStateInfo(channel: BlockingChannel,//与服务器broker建立连接的socket链接对象
-                                     broker: Broker,//服务器broker节点
-                                     messageQueue: BlockingQueue[(RequestOrResponse, (RequestOrResponse) => Unit)],//存储发往服务器broker节点的数据请求队列
+case class ControllerBrokerStateInfo(channel: BlockingChannel,//与服务器broker建立连接的客户端
+                                     broker: Broker,//服务器端broker节点
+                                     messageQueue: BlockingQueue[(RequestOrResponse, (RequestOrResponse) => Unit)],//存储发往服务器broker节点的数据请求队列,队列内容是{请求内容,回调函数--该回调函数的参数是RequestOrResponse,返回值是无}
                                      requestSendThread: RequestSendThread)//真正从messageQueue队列中获取数据,执行发送请求,接收返回值,处理回调函数的线程
 
 //表示要删除的一个partition备份信息,包含partition-topic-brokerId信息,是否删除该partition,以及回调函数

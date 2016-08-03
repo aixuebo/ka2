@@ -74,11 +74,11 @@ case class PartitionStateInfo(val leaderIsrAndControllerEpoch: LeaderIsrAndContr
     buffer.putInt(leaderIsrAndControllerEpoch.controllerEpoch)
     buffer.putInt(leaderIsrAndControllerEpoch.leaderAndIsr.leader)
     buffer.putInt(leaderIsrAndControllerEpoch.leaderAndIsr.leaderEpoch)
-    buffer.putInt(leaderIsrAndControllerEpoch.leaderAndIsr.isr.size)
-    leaderIsrAndControllerEpoch.leaderAndIsr.isr.foreach(buffer.putInt(_))
+    buffer.putInt(leaderIsrAndControllerEpoch.leaderAndIsr.isr.size)//同步节点数量
+    leaderIsrAndControllerEpoch.leaderAndIsr.isr.foreach(buffer.putInt(_))//同步的节点集合
     buffer.putInt(leaderIsrAndControllerEpoch.leaderAndIsr.zkVersion)
-    buffer.putInt(replicationFactor)
-    allReplicas.foreach(buffer.putInt(_))
+    buffer.putInt(replicationFactor)//备份节点数量
+    allReplicas.foreach(buffer.putInt(_))//备份节点集合
   }
 
   def sizeInBytes(): Int = {

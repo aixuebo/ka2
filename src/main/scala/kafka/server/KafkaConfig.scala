@@ -247,7 +247,9 @@ class KafkaConfig private (val props: VerifiableProperties) extends ZKConfig(pro
   /* the socket timeout for controller-to-broker channels */
   val controllerSocketTimeoutMs = props.getInt("controller.socket.timeout.ms", 30000)
 
-  /* the buffer size for controller-to-broker-channels */
+  /* the buffer size for controller-to-broker-channels
+  * 控制controller的队列长度
+  **/
   val controllerMessageQueueSize= props.getInt("controller.message.queue.size", Int.MaxValue)
 
   /* default replication factors for automatically created topics */

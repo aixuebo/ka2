@@ -64,7 +64,9 @@ import java.util.concurrent.atomic.AtomicBoolean
  *    it marks the topic for deletion retry.
  * @param controller
  * @param initialTopicsToBeDeleted The topics that are queued up for deletion in zookeeper at the time of controller failover
+ *         controller故障转移时候,从zookeeper中读取的要删除的topic队列集合
  * @param initialTopicsIneligibleForDeletion The topics ineligible for deletion due to any of the conditions mentioned in #3 above
+ *         不合格的topic集合,这些topic要去被删除,这些不合格的topic是上面3个条件任意一个条件触发时候,都认为他是不合格的topic
  */
 class TopicDeletionManager(controller: KafkaController,
                            initialTopicsToBeDeleted: Set[String] = Set.empty,
@@ -76,14 +78,15 @@ class TopicDeletionManager(controller: KafkaController,
   
   //存储要删除的topic集合
   val topicsToBeDeleted: mutable.Set[String] = mutable.Set.empty[String] ++ initialTopicsToBeDeleted
-  //根据要删除的topic集合,查找这些topic所对应的所有TopicAndPartition集合,即要被删除的TopicAndPartition集合
+  //根据要删除的topic集合,查找这些topic所对应的所有TopicAndPartition集合,即要被删除的TopicAndPartition集合,返回值Set[TopicAndPartition]
   val partitionsToBeDeleted: mutable.Set[TopicAndPartition] = topicsToBeDeleted.flatMap(controllerContext.partitionsForTopic)
   
   val deleteLock = new ReentrantLock()
   
   val topicsIneligibleForDeletion: mutable.Set[String] = mutable.Set.empty[String] ++
-    (initialTopicsIneligibleForDeletion & initialTopicsToBeDeleted)
+    (initialTopicsIneligibleForDeletion & initialTopicsToBeDeleted)//不合格的与要删除的topic 交集
   val deleteTopicsCond = deleteLock.newCondition()
+
   val deleteTopicStateChanged: AtomicBoolean = new AtomicBoolean(false)//true表示有topic要被去删除,需要DeleteTopicsThread线程执行
   var deleteTopicsThread: DeleteTopicsThread = null//真正去删除topic的线程
   val isDeleteTopicEnabled = controller.config.deleteTopicEnable//只有该值为true时,才表示允许进行topic删除操作
@@ -92,10 +95,11 @@ class TopicDeletionManager(controller: KafkaController,
    * Invoked at the end of new controller initiation
    */
   def start() {
+    //开启线程去执行删除topic操作
     if (isDeleteTopicEnabled) {
       deleteTopicsThread = new DeleteTopicsThread()
       if (topicsToBeDeleted.size > 0)
-        deleteTopicStateChanged.set(true)
+        deleteTopicStateChanged.set(true)//只有存在要删除的topic集合的时候,才设置为true
       deleteTopicsThread.start()
     }
   }
@@ -142,12 +146,13 @@ class TopicDeletionManager(controller: KafkaController,
    * 3. Preferred replica election completes. Any partitions belonging to topics queued up for deletion finished
    *    preferred replica election
    * @param topics Topics for which deletion can be resumed
+   * 将一些topic不去删除
    */
   def resumeDeletionForTopics(topics: Set[String] = Set.empty) {
     if(isDeleteTopicEnabled) {
-      val topicsToResumeDeletion = topics & topicsToBeDeleted//获取集合交集
+      val topicsToResumeDeletion = topics & topicsToBeDeleted//获取集合交集,即不去删除哪些集合
       if(topicsToResumeDeletion.size > 0) {
-        topicsIneligibleForDeletion --= topicsToResumeDeletion
+        topicsIneligibleForDeletion --= topicsToResumeDeletion //说明这些topic又变成合法的topic了
         resumeTopicDeletionThread()
       }
     }
@@ -225,18 +230,19 @@ class TopicDeletionManager(controller: KafkaController,
    */
   private def awaitTopicDeletionNotification() {
     inLock(deleteLock) {
-      while(deleteTopicsThread.isRunning.get() && !deleteTopicStateChanged.compareAndSet(true, false)) {
+      while(deleteTopicsThread.isRunning.get() && !deleteTopicStateChanged.compareAndSet(true, false)) {//将条件状态由true变成false,等待下次通知变成true为止
         debug("Waiting for signal to start or continue topic deletion")
-        deleteTopicsCond.await()
+        deleteTopicsCond.await()//一旦状态更改完毕,就等待下一次信号接收
       }
     }
   }
 
   /**
    * Signals the delete-topic-thread to process topic deletion
+   * 去让线程可以删除topic
    */
   private def resumeTopicDeletionThread() {
-    deleteTopicStateChanged.set(true)
+    deleteTopicStateChanged.set(true)//条件设置为true
     inLock(deleteLock) {
       deleteTopicsCond.signal()
     }
@@ -390,10 +396,11 @@ class TopicDeletionManager(controller: KafkaController,
     }
   }
 
+  //线程,专门去删除topic
   class DeleteTopicsThread() extends ShutdownableThread(name = "delete-topics-thread-" + controller.config.brokerId, isInterruptible = false) {
     val zkClient = controllerContext.zkClient
-    override def doWork() {
-      awaitTopicDeletionNotification()
+    override def doWork() {//不断的执行该方法
+      awaitTopicDeletionNotification() //等待下一次信号接收
 
       if (!isRunning.get)
         return
@@ -414,19 +421,19 @@ class TopicDeletionManager(controller: KafkaController,
             // clear up all state for this topic from controller cache and zookeeper
             completeDeleteTopic(topic)
             info("Deletion of topic %s successfully completed".format(topic))
-          } else {
-            if(controller.replicaStateMachine.isAtLeastOneReplicaInDeletionStartedState(topic)) {
-              // ignore since topic deletion is in progress
+          } else {//说明该topic还有没有删除的备份
+            if(controller.replicaStateMachine.isAtLeastOneReplicaInDeletionStartedState(topic)) {//true表示topic中存在至少一个备份对象是已经准备删除中
+              // ignore since topic deletion is in progress 因为该topic已经在删除进程中了,因此忽略
               val replicasInDeletionStartedState = controller.replicaStateMachine.replicasInState(topic, ReplicaDeletionStarted)
               val replicaIds = replicasInDeletionStartedState.map(_.replica)
               val partitions = replicasInDeletionStartedState.map(r => TopicAndPartition(r.topic, r.partition))
               info("Deletion for replicas %s for partition %s of topic %s in progress".format(replicaIds.mkString(","),
                 partitions.mkString(","), topic))
-            } else {
+            } else {//说明该topic还没有进入删除过程中
               // if you come here, then no replica is in TopicDeletionStarted and all replicas are not in
               // TopicDeletionSuccessful. That means, that either given topic haven't initiated deletion
               // or there is at least one failed replica (which means topic deletion should be retried).
-              if(controller.replicaStateMachine.isAnyReplicaInState(topic, ReplicaDeletionIneligible)) {
+              if(controller.replicaStateMachine.isAnyReplicaInState(topic, ReplicaDeletionIneligible)) {///返回是否存在该topic在state状态下的备份对象,true表示存在
                 // mark topic for deletion retry
                 markTopicForDeletionRetry(topic)
               }
