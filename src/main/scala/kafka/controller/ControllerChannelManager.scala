@@ -211,18 +211,32 @@ class RequestSendThread(val controllerId: Int,//当前controller的broker节点I
   }
 }
 
-//该类与ReplicaStateMachine类、PartitionStateMachine类关系较大
+/**
+ * 该类与ReplicaStateMachine类、PartitionStateMachine类关系较大
+ * 作用:
+ * 1.updateMetadataRequestMap  表示要向其他节点发送此时partition的元数据的状态,即该partition的leader节点、同步节点集合、备份节点集合、该partition是否处于删除中
+ * 2.stopReplicaRequestMap 表示每一个节点上存储要在该节点上停止为某一个partition提供备份服务
+ */
 class ControllerBrokerRequestBatch(controller: KafkaController) extends  Logging {
   val controllerContext = controller.controllerContext
   val controllerId: Int = controller.config.brokerId
   val clientId: String = controller.clientId
-  //key是节点ID,value是一个Map,key是元组topic-partition组成,value是该partition对应的PartitionStateInfo对象
-  //即brokerID,Map<topic-partition,PartitionStateInfo>
+  /**
+   * key表示向哪个节点ID发送请求,value是具体向该节点ID发送的信息,即topic-partition-描述当前partition的详细信息
+   */
   val leaderAndIsrRequestMap = new mutable.HashMap[Int, mutable.HashMap[(String, Int), PartitionStateInfo]]
+
   //key是节点ID,value是该节点上等待删除的备份集合,
   //StopReplicaRequestInfo表示要删除的一个partition备份信息,包含partition-topic-brokerId信息,是否删除该partition,以及回调函数
+  /**
+   * key表示向哪个节点ID发送请求,value是具体向该节点ID发送的信息,即StopReplicaRequestInfo集合
+   */
   val stopReplicaRequestMap = new mutable.HashMap[Int, Seq[StopReplicaRequestInfo]]
+
+  //更新此时每一个partition对应的详细状态
+  //因为每一个partition可能分布在不同的节点上,因此为每一个节点设置一组属于该节点的partition-partition状态集合
   val updateMetadataRequestMap = new mutable.HashMap[Int, mutable.HashMap[TopicAndPartition, PartitionStateInfo]]
+
   private val stateChangeLogger = KafkaController.stateChangeLogger
 
   def newBatch() {
@@ -240,7 +254,7 @@ class ControllerBrokerRequestBatch(controller: KafkaController) extends  Logging
 
   /**
    * @param brokerIds 将要新添加的节点集合
-   * @param topic 为哪个topic-partition添加follow节点
+   * @param topic
    * @param partition
    * @param leaderIsrAndControllerEpoch 该topic-partition当前leader详细信息
    * @param replicas 当前topic-partition已经存在了哪些备份节点集合
@@ -281,44 +295,62 @@ class ControllerBrokerRequestBatch(controller: KafkaController) extends  Logging
     }
   }
 
-  /** Send UpdateMetadataRequest to the given brokers for the given partitions and partitions that are being deleted */
+  /** Send UpdateMetadataRequest to the given brokers for the given partitions and partitions that are being deleted
+    * 向参数brokerIds节点集合中发送此时partition元数据的状态
+    * 注意:
+    * 1.发送的partition元数据可以标识为该partition已经处于被删除中状态
+    * 2.参数partitions 表示只发送partitions相关的元数据,如果没有该参数,则发送全部partition的元数据
+    **/
   def addUpdateMetadataRequestForBrokers(brokerIds: Seq[Int],
                                          partitions: collection.Set[TopicAndPartition] = Set.empty[TopicAndPartition],
                                          callback: (RequestOrResponse) => Unit = null) {
+
+    //更新该topic-partition的元数据,参数beingDeleted true表示该topic-partition已经在处于被删除处理过程中,false表示没有被删除处理
     def updateMetadataRequestMapFor(partition: TopicAndPartition, beingDeleted: Boolean) {
-      val leaderIsrAndControllerEpochOpt = controllerContext.partitionLeadershipInfo.get(partition)
+      val leaderIsrAndControllerEpochOpt = controllerContext.partitionLeadershipInfo.get(partition) //找到partition的leader对象
       leaderIsrAndControllerEpochOpt match {
         case Some(leaderIsrAndControllerEpoch) =>
           val replicas = controllerContext.partitionReplicaAssignment(partition).toSet //该partition所在备份节点集合
-          val partitionStateInfo = if (beingDeleted) {
+
+          //返回当前partition的详细信息
+          val partitionStateInfo = if (beingDeleted) {//更新当前partition状态是删除中
             val leaderAndIsr = new LeaderAndIsr(LeaderAndIsr.LeaderDuringDelete, leaderIsrAndControllerEpoch.leaderAndIsr.isr)
             PartitionStateInfo(LeaderIsrAndControllerEpoch(leaderAndIsr, leaderIsrAndControllerEpoch.controllerEpoch), replicas)
           } else {
-            PartitionStateInfo(leaderIsrAndControllerEpoch, replicas)
+            PartitionStateInfo(leaderIsrAndControllerEpoch, replicas) //描述当前partition的详细信息
           }
+
+          //设置该partition对应的此时状态
           brokerIds.filter(b => b >= 0).foreach { brokerId =>
             updateMetadataRequestMap.getOrElseUpdate(brokerId, new mutable.HashMap[TopicAndPartition, PartitionStateInfo])
             updateMetadataRequestMap(brokerId).put(partition, partitionStateInfo)
           }
         case None =>
+          //说明没有leader节点,因此跳过,不会更新该元数据请求
           info("Leader not yet assigned for partition %s. Skip sending UpdateMetadataRequest.".format(partition))
       }
     }
 
+    //获取对应的partition集合,即从全部leader的TopicAndPartition集合 或者参数的TopicAndPartition集合中 进一步除去 已经删除的topic对应的partition的集合,返回的即是剩余的集合
     val filteredPartitions = {
       val givenPartitions = if (partitions.isEmpty)
-        controllerContext.partitionLeadershipInfo.keySet
+        controllerContext.partitionLeadershipInfo.keySet //获取所有有leader的topic-partition对象集合 List[TopicAndPartition]
       else
         partitions
-      if (controller.deleteTopicManager.partitionsToBeDeleted.isEmpty)
+
+      if (controller.deleteTopicManager.partitionsToBeDeleted.isEmpty) //如果被删除的partition是空,则说明没有partition要继续被过滤,因此返回上一步获得的givenPartitions即可
         givenPartitions
       else
-        givenPartitions -- controller.deleteTopicManager.partitionsToBeDeleted
+        givenPartitions -- controller.deleteTopicManager.partitionsToBeDeleted //刨除掉要被删除的partition对象
     }
+
+    //组织未被删除的partition的元数据信息
     filteredPartitions.foreach(partition => updateMetadataRequestMapFor(partition, beingDeleted = false))
+    //组织被删除的partition的元数据信息
     controller.deleteTopicManager.partitionsToBeDeleted.foreach(partition => updateMetadataRequestMapFor(partition, beingDeleted = true))
   }
 
+  //真正去发送数据
   def sendRequestsToBrokers(controllerEpoch: Int, correlationId: Int) {
     leaderAndIsrRequestMap.foreach { m =>
       val broker = m._1
@@ -336,6 +368,8 @@ class ControllerBrokerRequestBatch(controller: KafkaController) extends  Logging
       controller.sendRequest(broker, leaderAndIsrRequest, null)
     }
     leaderAndIsrRequestMap.clear()
+
+
     updateMetadataRequestMap.foreach { m =>
       val broker = m._1
       val partitionStateInfos = m._2.toMap
@@ -347,6 +381,8 @@ class ControllerBrokerRequestBatch(controller: KafkaController) extends  Logging
       controller.sendRequest(broker, updateMetadataRequest, null)
     }
     updateMetadataRequestMap.clear()
+
+
     stopReplicaRequestMap foreach { case(broker, replicaInfoList) =>
       val stopReplicaWithDelete = replicaInfoList.filter(p => p.deletePartition == true).map(i => i.replica).toSet
       val stopReplicaWithoutDelete = replicaInfoList.filter(p => p.deletePartition == false).map(i => i.replica).toSet

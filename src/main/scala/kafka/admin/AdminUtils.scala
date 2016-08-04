@@ -201,8 +201,8 @@ object AdminUtils extends Logging {
                   replicationFactor: Int, 
                   topicConfig: Properties = new Properties) {
     val brokerList = ZkUtils.getSortedBrokerList(zkClient)
-    val replicaAssignment = AdminUtils.assignReplicasToBrokers(brokerList, partitions, replicationFactor)
-    AdminUtils.createOrUpdateTopicPartitionAssignmentPathInZK(zkClient, topic, replicaAssignment, topicConfig)
+    val replicaAssignment = AdminUtils.assignReplicasToBrokers(brokerList, partitions, replicationFactor) //已经把该topic的每一个partition分配到了哪些节点上去做备份
+    AdminUtils.createOrUpdateTopicPartitionAssignmentPathInZK(zkClient, topic, replicaAssignment, topicConfig)//将分配好的备份情况存储到zookeeper中
   }
 
   /**

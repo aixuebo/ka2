@@ -184,6 +184,7 @@ with Logging {
  * New leader = replica in isr that's not being shutdown; 新的leader是同步列表中没有shutdown的
  * New isr = current isr - shutdown replica; 新的同步列表是当前同步列表 - 正在shutdown的
  * Replicas to receive LeaderAndIsr request = live assigned replicas 备份节点集合是活着的分配的备份节点集合
+ * 当leader所在节点进行shutdown的时候,使用该选择器,重新选择leader
  */
 class ControlledShutdownLeaderSelector(controllerContext: ControllerContext)
         extends PartitionLeaderSelector

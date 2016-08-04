@@ -66,6 +66,11 @@ object PartitionStateInfo {
   }
 }
 
+/**
+ * 描述当前partition的详细信息
+ * @param leaderIsrAndControllerEpoch 该partition的leader对象详细信息
+ * @param allReplicas 该partition的备份节点集合
+ */
 case class PartitionStateInfo(val leaderIsrAndControllerEpoch: LeaderIsrAndControllerEpoch,
                               val allReplicas: Set[Int]) {
   def replicationFactor = allReplicas.size

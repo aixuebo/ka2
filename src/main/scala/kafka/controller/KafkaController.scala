@@ -214,7 +214,7 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
   val controllerContext = new ControllerContext(zkClient, config.zkSessionTimeoutMs)//创建上下文对象
   
   val partitionStateMachine = new PartitionStateMachine(this)//partition的状态机
-  val replicaStateMachine = new ReplicaStateMachine(this)//复制paritition的状态机
+  val replicaStateMachine = new ReplicaStateMachine(this)//paritition的备份对象的状态机
   
   private val controllerElector = new ZookeeperLeaderElector(controllerContext, ZkUtils.ControllerPath, onControllerFailover,
     onControllerResignation, config.brokerId)
@@ -228,7 +228,7 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
   private val reassignedPartitionLeaderSelector = new ReassignedPartitionLeaderSelector(controllerContext)
   private val preferredReplicaPartitionLeaderSelector = new PreferredReplicaPartitionLeaderSelector(controllerContext)
   private val controlledShutdownPartitionLeaderSelector = new ControlledShutdownLeaderSelector(controllerContext)
-  private val brokerRequestBatch = new ControllerBrokerRequestBatch(this)
+  private val brokerRequestBatch = new ControllerBrokerRequestBatch(this) //处理 批处理请求 的对象
 
   //监听zookeeper的/admin/reassign_partitions节点
   private val partitionReassignedListener = new PartitionsReassignedListener(this)
@@ -280,9 +280,9 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
    * On clean shutdown, the controller first determines the partitions that the
    * shutting down broker leads, and moves leadership of those partitions to another broker
    * that is in that partition's ISR.
-   *
+   * 在要对节点shutdown的时候,首先找到该节点上是leader的partition,将这些partition的leader迁移到同步节点中的一个里面
    * @param id Id of the broker to shutdown.
-   * @return The number of partitions that the broker still leads.
+   * @return The number of partitions that the broker still leads.返回该节点上仍然是leader的partition集合
    */
   def shutdownBroker(id: Int) : Set[TopicAndPartition] = {
 
@@ -294,14 +294,18 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
       info("Shutting down broker " + id)
 
       inLock(controllerContext.controllerLock) {
-        if (!controllerContext.liveOrShuttingDownBrokerIds.contains(id))
+        if (!controllerContext.liveOrShuttingDownBrokerIds.contains(id)) //确保此时该节点是存在的
           throw new BrokerNotAvailableException("Broker id %d does not exist.".format(id))
 
-        controllerContext.shuttingDownBrokerIds.add(id)
+        controllerContext.shuttingDownBrokerIds.add(id) //该节点添加到关闭节点集合中
         debug("All shutting down brokers: " + controllerContext.shuttingDownBrokerIds.mkString(","))
         debug("Live brokers: " + controllerContext.liveBrokerIds.mkString(","))
       }
 
+      /**
+       * controllerContext.partitionsOnBroker(id) 返回给定节点集合中存在的TopicAndPartition集合
+       * .map(topicAndPartition => (topicAndPartition, controllerContext.partitionReplicaAssignment(topicAndPartition).size)) 返回该节点上存在的topic-partition对应的备份因子数量
+       */
       val allPartitionsAndReplicationFactorOnBroker: Set[(TopicAndPartition, Int)] =
         inLock(controllerContext.controllerLock) {
           controllerContext.partitionsOnBroker(id)
@@ -313,18 +317,21 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
           // Move leadership serially to relinquish lock.
           inLock(controllerContext.controllerLock) {
             controllerContext.partitionLeadershipInfo.get(topicAndPartition).foreach { currLeaderIsrAndControllerEpoch =>
-              if (replicationFactor > 1) {
-                if (currLeaderIsrAndControllerEpoch.leaderAndIsr.leader == id) {
+              if (replicationFactor > 1) {//说明备份节点因子>1
+                if (currLeaderIsrAndControllerEpoch.leaderAndIsr.leader == id) {//说明该节点是该partition的leader节点所在节点
                   // If the broker leads the topic partition, transition the leader and update isr. Updates zk and
                   // notifies all affected brokers
+                  //重新选择一个新的leader
                   partitionStateMachine.handleStateChanges(Set(topicAndPartition), OnlinePartition,
                     controlledShutdownPartitionLeaderSelector)
-                } else {
+                } else {//说明该节点不是partition的leader节点
                   // Stop the replica first. The state change below initiates ZK changes which should take some time
                   // before which the stop replica request should be completed (in most cases)
                   brokerRequestBatch.newBatch()
+                  //向id节点发送信息,通知他不再对topic-partition进行备份了
                   brokerRequestBatch.addStopReplicaRequestForBrokers(Seq(id), topicAndPartition.topic,
                     topicAndPartition.partition, deletePartition = false)
+                  //触发请求发送
                   brokerRequestBatch.sendRequestsToBrokers(epoch, controllerContext.correlationId.getAndIncrement)
 
                   // If the broker is a follower, updates the isr in ZK and notifies the current leader
@@ -336,7 +343,7 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
           }
       }
       def replicatedPartitionsBrokerLeads() = inLock(controllerContext.controllerLock) {
-        trace("All leaders = " + controllerContext.partitionLeadershipInfo.mkString(","))
+        trace("All leaders = " + controllerContext.partitionLeadershipInfo.mkString(",")) //打印所有的leader
         controllerContext.partitionLeadershipInfo.filter {
           case (topicAndPartition, leaderIsrAndControllerEpoch) =>
             leaderIsrAndControllerEpoch.leaderAndIsr.leader == id && controllerContext.partitionReplicaAssignment(topicAndPartition).size > 1
@@ -386,12 +393,15 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
       replicaStateMachine.startup()
       partitionStateMachine.startup()
       // register the partition change listeners for all existing topics on failover
+      //为每一个topic添加监听,监听该topic的partition是否有变化,即partition是否增加或者减少了,或者备份节点集合是否变化
       controllerContext.allTopics.foreach(topic => partitionStateMachine.registerPartitionChangeListener(topic))
       info("Broker %d is ready to serve as the new controller with epoch %d".format(config.brokerId, epoch))//打印说明该节点已经是controller了
       brokerState.newState(RunningAsController)//设置该服务器运行中,并且该服务器也已经是controller服务器了
       maybeTriggerPartitionReassignment()
       maybeTriggerPreferredReplicaElection()
-      /* send partition leadership info to all live brokers */
+      /* send partition leadership info to all live brokers
+      * 向活着的节点发送partition的leader信息
+      **/
       sendUpdateMetadataRequest(controllerContext.liveOrShuttingDownBrokerIds.toSeq)
       if (config.autoLeaderRebalanceEnable) {
         info("starting the partition rebalance scheduler")
@@ -551,8 +561,8 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
   def onNewTopicCreation(topics: Set[String], newPartitions: Set[TopicAndPartition]) {
     info("New topic creation callback for %s".format(newPartitions.mkString(",")))
     // subscribe to partition changes
-    topics.foreach(topic => partitionStateMachine.registerPartitionChangeListener(topic))
-    onNewPartitionCreation(newPartitions)
+    topics.foreach(topic => partitionStateMachine.registerPartitionChangeListener(topic)) //为新增加的topic增加partition内容监听
+    onNewPartitionCreation(newPartitions) //添加新的partition
   }
 
   /**
@@ -560,12 +570,13 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
    * It does the following -
    * 1. Move the newly created partitions to the NewPartition state
    * 2. Move the newly created partitions from NewPartition->OnlinePartition state
+   * 某个topic增加了一些partition
    */
   def onNewPartitionCreation(newPartitions: Set[TopicAndPartition]) {
     info("New partition creation callback for %s".format(newPartitions.mkString(",")))
-    partitionStateMachine.handleStateChanges(newPartitions, NewPartition)
+    partitionStateMachine.handleStateChanges(newPartitions, NewPartition) //先将新增加的partition状态改成new
     replicaStateMachine.handleStateChanges(controllerContext.replicasForPartition(newPartitions), NewReplica)
-    partitionStateMachine.handleStateChanges(newPartitions, OnlinePartition, offlinePartitionSelector)
+    partitionStateMachine.handleStateChanges(newPartitions, OnlinePartition, offlinePartitionSelector) //将new的状态改成OnlinePartition
     replicaStateMachine.handleStateChanges(controllerContext.replicasForPartition(newPartitions), OnlineReplica)
   }
 
@@ -1124,6 +1135,7 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
    * Send the leader information for selected partitions to selected brokers so that they can correctly respond to
    * metadata requests
    * @param brokers The brokers that the update metadata request should be sent to
+   * 向节点集合中 发送指定partition集合的元数据信息
    */
   def sendUpdateMetadataRequest(brokers: Seq[Int], partitions: Set[TopicAndPartition] = Set.empty[TopicAndPartition]) {
     brokerRequestBatch.newBatch()
@@ -1386,9 +1398,10 @@ class PartitionsReassignedListener(controller: KafkaController) extends IZkDataL
  * @param topic
  * @param partition
  * @param reassignedReplicas 新的备份节点集合
+ * /brokers/topics/${topic}/partitions/${partitionId}/state注册监听器
  */
 class ReassignedPartitionsIsrChangeListener(controller: KafkaController, topic: String, partition: Int,
-                                            reassignedReplicas: Set[Int])
+                                            reassignedReplicas: Set[Int]) //备份节点集合
   extends IZkDataListener with Logging {
   this.logIdent = "[ReassignedPartitionsIsrChangeListener on controller " + controller.config.brokerId + "]: "
   val zkClient = controller.controllerContext.zkClient
