@@ -85,6 +85,7 @@ class PartitionStateMachine(controller: KafkaController) extends Logging {
     // set started flag
     hasStarted.set(true)
     // try to move partitions to online state
+    //尝试移动partiton状态,最终状态是OnlinePartition状态
     triggerOnlinePartitionStateChange()
 
     //打印每一个partition的状态

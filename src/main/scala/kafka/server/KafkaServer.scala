@@ -179,30 +179,32 @@ class KafkaServer(val config: KafkaConfig, time: Time = SystemTime) extends Logg
 
   /**
    *  Performs controlled shutdown
+   *  向controller发送shutdown命令
    */
   private def controlledShutdown() {
     if (startupComplete.get() && config.controlledShutdownEnable) {
       // We request the controller to do a controlled shutdown. On failure, we backoff for a configured period
       // of time and try again for a configured number of retries. If all the attempt fails, we simply force
       // the shutdown.
-      var remainingRetries = config.controlledShutdownMaxRetries
+      var remainingRetries = config.controlledShutdownMaxRetries //尝试发送次数
       info("Starting controlled shutdown")
-      var channel : BlockingChannel = null
-      var prevController : Broker = null
-      var shutdownSuceeded : Boolean = false
+      var channel : BlockingChannel = null //与controller节点建立连接
+      var prevController : Broker = null //上一次controller是哪个节点
+      var shutdownSuceeded : Boolean = false //说明shutdown是否成功了
       try {
-        brokerState.newState(PendingControlledShutdown)
-        while (!shutdownSuceeded && remainingRetries > 0) {
+        brokerState.newState(PendingControlledShutdown) //该服务器已经准备shutdown ,已经向controller提交了,等待controller回复的过程
+        while (!shutdownSuceeded && remainingRetries > 0) {//只要没成功,就不断循环,直到次数到为止
           remainingRetries = remainingRetries - 1
 
           // 1. Find the controller and establish a connection to it.
 
           // Get the current controller info. This is to ensure we use the most recent info to issue the
           // controlled shutdown request
-          val controllerId = ZkUtils.getController(zkClient)
+          val controllerId = ZkUtils.getController(zkClient) //读取/controller节点的内容
+          //创建与controller的连接
           ZkUtils.getBrokerInfo(zkClient, controllerId) match {
             case Some(broker) =>
-              if (channel == null || prevController == null || !prevController.equals(broker)) {
+              if (channel == null || prevController == null || !prevController.equals(broker)) { // !prevController.equals(broker) 说明controller已经变更了,要重新连接一下,channel == null || prevController == null说明还没有与controller连接,说明是第一次连接
                 // if this is the first attempt or if the controller has changed, create a channel to the most recent
                 // controller
                 if (channel != null) {
@@ -211,7 +213,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = SystemTime) extends Logg
                 channel = new BlockingChannel(broker.host, broker.port,
                   BlockingChannel.UseDefaultBufferSize,
                   BlockingChannel.UseDefaultBufferSize,
-                  config.controllerSocketTimeoutMs)
+                  config.controllerSocketTimeoutMs)//与controller节点建立连接
                 channel.connect()
                 prevController = broker
               }
@@ -219,7 +221,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = SystemTime) extends Logg
               //ignore and try again
           }
 
-          // 2. issue a controlled shutdown to the controller
+          // 2. issue a controlled shutdown to the controller 发送一个shutdown命令给controller节点
           if (channel != null) {
             var response: Receive = null
             try {
@@ -227,16 +229,15 @@ class KafkaServer(val config: KafkaConfig, time: Time = SystemTime) extends Logg
               val request = new ControlledShutdownRequest(correlationId.getAndIncrement, config.brokerId)
               channel.send(request)
 
-              response = channel.receive()
+              response = channel.receive() //接收controller节点的回复信息
               val shutdownResponse = ControlledShutdownResponse.readFrom(response.buffer)
               if (shutdownResponse.errorCode == ErrorMapping.NoError && shutdownResponse.partitionsRemaining != null &&
-                  shutdownResponse.partitionsRemaining.size == 0) {
-                shutdownSuceeded = true
+                  shutdownResponse.partitionsRemaining.size == 0) {//说明该节点上没有leader的partition了,就说明可以进行shutdown了
+                shutdownSuceeded = true //说明shutdown成功了
                 info ("Controlled shutdown succeeded")
-              }
-              else {
-                info("Remaining partitions to move: %s".format(shutdownResponse.partitionsRemaining.mkString(",")))
-                info("Error code from controller: %d".format(shutdownResponse.errorCode))
+              }else {
+                info("Remaining partitions to move: %s".format(shutdownResponse.partitionsRemaining.mkString(",")))//打印还是leader的partition集合
+                info("Error code from controller: %d".format(shutdownResponse.errorCode))//打印返回状态码
               }
             }
             catch {
@@ -247,7 +248,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = SystemTime) extends Logg
                 // ignore and try again
             }
           }
-          if (!shutdownSuceeded) {
+          if (!shutdownSuceeded) {//说明没提交成功,因此休息一会,再发送
             Thread.sleep(config.controlledShutdownRetryBackoffMs)
             warn("Retrying controlled shutdown after the previous attempt failed...")
           }
@@ -259,7 +260,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = SystemTime) extends Logg
           channel = null
         }
       }
-      if (!shutdownSuceeded) {
+      if (!shutdownSuceeded) {//说明最后也没有提交成功,则打印日志
         warn("Proceeding to do an unclean shutdown as all the controlled shutdown attempts failed")
       }
     }

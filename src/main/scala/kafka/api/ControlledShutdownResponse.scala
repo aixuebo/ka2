@@ -41,7 +41,7 @@ object ControlledShutdownResponse {
 
 case class ControlledShutdownResponse(val correlationId: Int,
                                       val errorCode: Short = ErrorMapping.NoError,
-                                      val partitionsRemaining: Set[TopicAndPartition])
+                                      val partitionsRemaining: Set[TopicAndPartition]) //该节点上仍然是leader的partition集合
   extends RequestOrResponse() {
   def sizeInBytes(): Int ={
     var size =

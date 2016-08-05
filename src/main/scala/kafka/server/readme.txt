@@ -17,6 +17,15 @@
 9.KafkaController
 
 
+三、整体流程
+1.用户先产生一个topic,协商好要拥有几个partition,以及备份因子
+2.程序会自动产生每一个partition的备份节点在哪里,并且将其写入到zookeeper的topic中
+3.当controller启动的时候,会加载所有的topic内容,因此就知道topic-partition-备份节点集合之间的关系了
+4.当集群运行中,新产生一个topic,因为controller.PartitionStateMachine监听了/brokers/topics,因此会通知controller创建该topic以及读取zookeeper,创建对应的partition对象,添加到zookeeper映射中。
+此时partition是new状态。同时也会产生备份对象,会经过ReplicaStateMachine状态机处理
+
+
+
 未解之谜
 1.kafka的基础是partition
 2.为了防止partition在本机不可用,则设置了备份

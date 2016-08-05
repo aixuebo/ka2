@@ -315,11 +315,16 @@ class KafkaConfig private (val props: VerifiableProperties) extends ZKConfig(pro
 
   /*********** Controlled shutdown configuration ***********/
 
-  /** Controlled shutdown can fail for multiple reasons. This determines the number of retries when such failure happens */
+  /** Controlled shutdown can fail for multiple reasons. This determines the number of retries when such failure happens
+    * 服务器shutdown时候要向controller发送shutdown命令,最多尝试发送次数
+    **/
   val controlledShutdownMaxRetries = props.getInt("controlled.shutdown.max.retries", 3)
 
   /** Before each retry, the system needs time to recover from the state that caused the previous failure (Controller
-    * fail over, replica lag etc). This config determines the amount of time to wait before retrying. */
+    * fail over, replica lag etc). This config determines the amount of time to wait before retrying.
+    *
+    * 服务器shutdown时候要向controller发送shutdown命令,最多尝试发送次数,每一次后等待时间间隔,参考controlledShutdownMaxRetries
+    **/
   val controlledShutdownRetryBackoffMs = props.getInt("controlled.shutdown.retry.backoff.ms", 5000)
 
   /* enable controlled shutdown of the server */

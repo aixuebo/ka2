@@ -55,3 +55,149 @@ new PartitionAndReplica(topicAndPartition.topic, topicAndPartition.partition, br
 
 
 
+
+
+------------------------------------------------------------------------------------------
+controller这个包管理的就是整个集群的事情
+1.一个集群必须有一个leader节点
+  a.该leader节点知道集群所有的topic-partition-在哪些节点有备份信息、哪些partition是正在被管理员分配了leader节点信息、哪些partition被管理员分配了存储到哪些备份节点中
+  b.该partition的详细leader信息,包括leader节点是哪台节点、leader被选举了几次、此时同步节点集合
+  c.controller被选举了多少次
+  d.管理和跟踪topic的创建、partition的追加或者减少、partition备份节点的情况
+  e.为partition选择一个leader
+2.一个partition有一个leader节点
+
+------------------------------------------------------------------------------------------
+PartitionLeaderSelector 意义是如何对partition选举leader
+该类主要改变topic-partition的三个属性:leader节点是谁、同步节点集合是什么、备份节点集合是什么
+一、接口
+def selectLeader(topicAndPartition: TopicAndPartition, currentLeaderAndIsr: LeaderAndIsr): (LeaderAndIsr, Seq[Int])
+表示要对topic-partiton选择一个leader,此时该partition的leader详细信息是currentLeaderAndIsr
+返回新的leader信息和备份节点集合
+
+二、OfflinePartitionLeaderSelector
+用于一般正常的状态流程
+1.至少有一个同步集合活着,从中拿出一个节点作为leader节点,并且活着的同步节点集合作为新的集合
+2.如果配置属性是false,同时没有活着的同步集合了,则抛异常
+3.如果没有活着的同步集合了,但是有活着的备份集合,则从备份集合中选择一个做leader,同步节点集合就只有该leader
+4.如果备份集合都没有,则抛异常
+5.最终内容是leader节点被选举新的,同步节点还是老的(仅保留活着节点的),备份节点还是老的(仅保留活着节点的)
+ 如果leader节点是从备份节点产生的,则最终内容是leader节点被选举新的,同步节点还是leader节点,备份节点还是老的(仅保留活着节点的)
+
+三、ReassignedPartitionLeaderSelector
+用于管理员分配了若干个备份节点的时候,---新的备份节点集合和同步节点集合做交集,--获取第一个节点作为leader节点
+1.获取管理员分配的新的备份节点集合
+2.活着的新的备份节点集合和同步节点集合做交集
+3.从2的结果中选择一个leader
+4.如果2中没有内容,说明没有同步集合在新的备份集合中,则抛异常
+5.最终内容是leader节点被选举新的,同步节点还是老的,备份节点是新分配的节点集合
+
+四、PreferredReplicaPartitionLeaderSelector
+用于从备份节点中选择第一个节点作为leader节点,前提是该第一个节点必须是活着的节点,并且在同步集合中,否则抛异常
+1.获取备份节点集合,并且获得第一个节点作为leader候选者
+2.获取此时leader节点,判断是否与1中选择的leader是同一个,如果是,则抛异常,说明压根就不用选举,本来就是
+3.如果此时leader不是1选择的,因此校验1选择的是不是活着的节点 && 1选择的是不是在同步集合中,如果不是则抛异常,说明有问题,选举失败
+  如果是,则返回选举后的值
+4.最终内容是leader节点被选举新的,同步节点不变,备份节点不变
+
+五、ControlledShutdownLeaderSelector
+当leader所在节点进行shutdown的时候,使用该选择器,重新选择leader
+1.对当前同步节点进行过滤,只要活着的节点
+2.从当前同步节点活着的节点集合中,选择一个作为leader节点
+3.对备份节点进行过滤,只要活着的节点
+4.最终内容是leader节点被选举新的,同步节点为活着的节点,备份节点为活着的节点集合
+
+六、NoOpLeaderSelector
+什么都没有做,leader、同步节点、备份节点依然保持不变
+
+------------------------------------------------------------------------------------------
+PartitionStateMachine 对partition进行状态机管理
+一、几种状态
+case object NonExistentPartition extends PartitionState { val state: Byte = 3 } partition还不存在
+case object NewPartition extends PartitionState { val state: Byte = 0 } 刚刚知道有partition,该状态下应该有replicas备份对象被分配给该partition了,但是没有leader和isr被分配
+case object OnlinePartition extends PartitionState { val state: Byte = 1 } partition已经有leader了,即一旦partition有leader被选举成功,他就是OnlinePartition状态
+case object OfflinePartition extends PartitionState { val state: Byte = 2 } partition无leader状态,即一旦leader选举成功后,leader挂了,则partition归属到OfflinePartition状态,等待继续选举一个leader
+
+二、属性
+  //每一个topic-partiton对应的PartitionState状态对象 映射关系
+  private val partitionState: mutable.Map[TopicAndPartition, PartitionState] = mutable.Map.empty
+
+  private val brokerRequestBatch = new ControllerBrokerRequestBatch(controller) //批处理器
+  private val hasStarted = new AtomicBoolean(false)
+
+  private val noOpPartitionLeaderSelector = new NoOpLeaderSelector(controllerContext)//什么也不做的选择器
+
+  //三个监听器
+  private val topicChangeListener = new TopicChangeListener()///brokers/topics节点监听
+  private val deleteTopicsListener = new DeleteTopicsListener()///admin/delete_topics节点监听
+  //key是topic,value是该topic上建立的监听,即/brokers/topics/${topic}节点上建立监听
+  private val addPartitionsListener: mutable.Map[String, AddPartitionsListener] = mutable.Map.empty
+
+三、startup 方法
+1.获取此时全部partition与状态的映射关系
+a.读取zookeeper上所有的topic-partition,因为在zookeeper上已经存在了,因此该partition一定有备份节点集合了,因此最少也是NewPartition状态
+b.如果该partition有leader节点内容,并且leader节点活着,该状态是OnlinePartition
+  如果该partition有leader节点内容,并且leader节点死了,该状态是OfflinePartition
+  如果该partition没有leader节点内容,则该状态是NewPartition
+2.hasStarted.set(true)
+  设置该状态机已经初始化完成
+3.triggerOnlinePartitionStateChange
+尝试移动partiton状态,最终状态是OnlinePartition状态
+只要该topic不是在删除中,则都要将partition移动到OnlinePartition状态,因为此时状态只有NewPartition和OfflinePartition,因此就是将NewPartition和OfflinePartition 转换成OnlinePartition状态的过程
+a.创建批量请求处理器brokerRequestBatch.newBatch()
+b.以此对handleStateChange方法进行处理,使用controller.offlinePartitionSelector选择器选择leader
+c.发送请求brokerRequestBatch.sendRequestsToBrokers(controller.epoch, controllerContext.correlationId.getAndIncrement)
+
+四、方法handleStateChange(topic: String, partition: Int, targetState: PartitionState,
+                                                   leaderSelector: PartitionLeaderSelector,
+                                                   callbacks: Callbacks) {
+进行状态转换,属于状态机的核心方法
+参数说明:指定要更改哪个topic-partition、更改最终是什么状态、以及选择什么选择器进行leader选举、回调函数
+1.获取当前partition的状态,默认没有映射的话,是NonExistentPartition状态
+2.如果最终结果是OfflinePartition或者NonExistentPartition,则什么都不做,直接替换映射内容即可
+partitionState.put(topicAndPartition, OfflinePartition) 或者 partitionState.put(topicAndPartition, NonExistentPartition)
+原因是OfflinePartition就是表示leader已经不要存在了,不需要进行什么处理,只是表示该状态
+而NonExistentPartition又是由OfflinePartition转过来的,说明已经又有leader了,不需要继续处理什么逻辑。
+3.如果最终状态是NewPartition,说明新增加了partition,说明以前不存在该partition,因此要进行处理。而此时zookeeper上已经记录了该partition的备份节点在哪里了,只是记录,但是controller不知道,因此
+a.加载/brokers/topics/${topic}节点内容
+b.向controller添加映射controllerContext.partitionReplicaAssignment += TopicAndPartition(topic, partition) -> assignedReplicas
+c.最终partitionState.put(topicAndPartition, NewPartition)
+4.如果最终状态是OnlinePartition,则比较麻烦,因为要涉及选择leader节点的事情,而且起始状态可以是NewPartition, OnlinePartition, OfflinePartition三者之一
+a.如果来源状态是NewPartition,因此该partition是新的,从来没有过leader节点的信息,也没有同步节点信息,只是有备份节点集合信息
+  因此该过程就是从备份节点集合中产生leader节点和同步节点集合,然后向zookeeper中/brokers/topics/${topic}/partitions/${partitionId}/state里面写入leader内容
+  获取全部备份节点集合 -- 过滤仅仅要活着节点的集合--获取第一个活着的备份节点作为leader节点--所有活着的备份节点集合作为同步节点(因为是新的,所以同步节点内容都是无)
+  ---向/brokers/topics/${topic}/partitions/${partitionId}/state里面写入leader内容,即leader和同步节点集合
+  ---向controller添加leader信息controllerContext.partitionLeadershipInfo.put(topicAndPartition, leaderIsrAndControllerEpoch)
+  ---批处理添加此过程brokerRequestBatch.addLeaderAndIsrRequestForBrokers(liveAssignedReplicas, topicAndPartition.topic,topicAndPartition.partition, leaderIsrAndControllerEpoch, replicaAssignment)
+b.如果来源状态是OfflinePartition和OnlinePartition,说明该partition本身是有leader信息的,此时只是想重新选择一个leader,因为老的leader挂了,活着更新一下leader的备份节点或者同步节点信息
+ 获取当前zookeeper上该partition的leader对象---leaderSelector.selectLeader(topicAndPartition, currentLeaderAndIsr)方法进行更新leader、同步节点集合、备份节点集合
+ ---将新的leader对象写回zookeeper内---controllerContext.partitionLeadershipInfo.put(TopicAndPartition(topic, partition), newLeaderIsrAndControllerEpoch)更新controller关于新的leader对象的映射
+ ---调用 brokerRequestBatch.addLeaderAndIsrRequestForBrokers(replicasForThisPartition, topic, partition,newLeaderIsrAndControllerEpoch, replicas),传入新老备份节点集合,意义暂时不知道为什么要这么做
+c.最终partitionState.put(topicAndPartition, OnlinePartition)
+
+五、def partitionsInState(state: PartitionState): Set[TopicAndPartition]
+查找状态是参数的所有partition集合
+
+六、三个监听---/brokers/topics节点监听
+当有新增加的topic时候,及时处理
+1.获取此时topic集合
+2.此时集合与原有集合比较,可以得到newTopics(本次新增topic集合)、deletedTopics(本次删除了哪些topic)
+3. controllerContext.allTopics 更新controller内部映射为最新的topic集合
+4.读取该新增topic有哪些partition以及partition备份节点分布,然后追加到controllerContext.partitionReplicaAssignment中
+并且调用controller.onNewTopicCreation(newTopics, addedPartitionReplicaAssignment.keySet.toSet)真正创建对应的partition对象
+5.将删除的topic对应的partition从controllerContext.partitionReplicaAssignment中删除映射
+
+七、三个监听---/brokers/topics/${topic}节点监听
+当topic下partition数量有变化、或者备份节点有变化的时候,及时处理
+1.获取当前topic的partition信息,包括多少个partition,每一个partition备份节点集合
+2.与controller中存储的partition比较,过滤掉已经存在的partition,即剩余刚刚新增的partition
+3.调用 controller.onNewPartitionCreation(partitionsToBeAdded.keySet.toSet),创建对应的partition对象
+
+八、三个监听---/admin/delete_topics节点监听
+当topic被删除的时候,及时趋合理
+1.获取要删除的topic集合
+2.controller.deleteTopicManager.enqueueTopicsForDeletion(topicsToBeDeleted)进行删除队列去删除
+3.如果该topic在controller的partitionsUndergoingPreferredReplicaElection和partitionsBeingReassigned中存在,即该topic被管理员分配了leader节点和partition备份节点集合,
+则也要调用controller.deleteTopicManager.markTopicIneligibleForDeletion(Set(topic))方法
+
+------------------------------------------------------------------------------------------

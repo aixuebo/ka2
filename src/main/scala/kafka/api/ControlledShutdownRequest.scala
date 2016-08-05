@@ -25,6 +25,9 @@ import kafka.common.{TopicAndPartition, ErrorMapping}
 import kafka.network.RequestChannel.Response
 import kafka.utils.Logging
 
+/**
+ * 通知controller要关闭该节点
+ */
 object ControlledShutdownRequest extends Logging {
   val CurrentVersion = 0.shortValue
   val DefaultClientId = ""
@@ -39,7 +42,7 @@ object ControlledShutdownRequest extends Logging {
 
 case class ControlledShutdownRequest(val versionId: Short,
                                      val correlationId: Int,
-                                     val brokerId: Int)
+                                     val brokerId: Int)//哪个节点要进行shutdown操作
   extends RequestOrResponse(Some(RequestKeys.ControlledShutdownKey)){
 
   def this(correlationId: Int, brokerId: Int) =

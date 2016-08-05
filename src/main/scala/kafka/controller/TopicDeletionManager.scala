@@ -186,11 +186,12 @@ class TopicDeletionManager(controller: KafkaController,
    * 2. partition reassignment in progress for some partitions of the topic
    * 3. preferred replica election in progress for some partitions of the topic
    * @param topics Topics that should be marked ineligible for deletion. No op if the topic is was not previously queued up for deletion
+   * 使一个topic逃离删除状态
    */
   def markTopicIneligibleForDeletion(topics: Set[String]) {
     if(isDeleteTopicEnabled) {
-      val newTopicsToHaltDeletion = topicsToBeDeleted & topics
-      topicsIneligibleForDeletion ++= newTopicsToHaltDeletion
+      val newTopicsToHaltDeletion = topicsToBeDeleted & topics //获取交集,该交接就是停止删除的topic集合
+      topicsIneligibleForDeletion ++= newTopicsToHaltDeletion //添加停止删除的topic集合中
       if(newTopicsToHaltDeletion.size > 0)
         info("Halted deletion of topics %s".format(newTopicsToHaltDeletion.mkString(",")))
     }

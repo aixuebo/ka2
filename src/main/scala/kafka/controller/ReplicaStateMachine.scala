@@ -257,7 +257,7 @@ class ReplicaStateMachine(controller: KafkaController) extends Logging {
           replicaState(partitionAndReplica) match {
             case NewReplica =>
               // add this replica to the assigned replicas list for its partition
-              val currentAssignedReplicas = controllerContext.partitionReplicaAssignment(topicAndPartition)
+              val currentAssignedReplicas = controllerContext.partitionReplicaAssignment(topicAndPartition) //备份节点集合
               if(!currentAssignedReplicas.contains(replicaId))
                 controllerContext.partitionReplicaAssignment.put(topicAndPartition, currentAssignedReplicas :+ replicaId)
               stateChangeLogger.trace("Controller %d epoch %d changed state of replica %d for partition %s from %s to %s"

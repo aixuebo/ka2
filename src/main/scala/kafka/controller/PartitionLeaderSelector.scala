@@ -147,7 +147,7 @@ class ReassignedPartitionLeaderSelector(controllerContext: ControllerContext) ex
 }
 
 /**
- * leader节点是管理员分配好的
+ * 优先从备份节点中选择leader节点
  * New leader = preferred (first assigned) replica (if in isr and alive);如果首选备份节点集合中第一个节点是活着的节点,并且在同步列表中,则优先分配为leader节点
  * New isr = current isr; 不更改当前的同步集合
  * Replicas to receive LeaderAndIsr request = assigned replicas 不更改备份节点集合
