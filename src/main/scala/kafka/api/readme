@@ -1,0 +1,23 @@
+一、RequestOrResponse(val requestId: Option[Short] = None)
+1.该方法构造函数是一个请求的分类标识符
+2.该类是抽象类,所有的request和Response对象都要继承该类,实现sizeInBytes和writeTo方法即可
+
+
+二、xxxRequest和xxxResponse
+1.由一系列参数组成,相当于java的属性
+2.def sizeInBytes(): Int 可以知道这些属性所占用字节数,即该请求占用字节数
+3.def writeTo(buffer: ByteBuffer)
+ 将属性全部写入到参数中,这样就可以发送出去了
+4.def readFrom(buffer: ByteBuffer): xxxRequest
+ 相当于read方法,从一个buffer对象中还原所有属性,与writeTo方法相反
+
+ 注意:
+ 站在客户端角度上看
+readFrom方法一般用于客户端发送请求后,收到response数据,然后调用readFrom方法反序列化
+writeTo 一般用于客户端发送信息到流中,属于序列化过程。
+站在服务端角度看
+readFrom方法是服务器收到request请求后,反序列化成Request对象
+writeTo方法是服务器要发送给客户端的内容,是属于序列化的过程
+
+
+
