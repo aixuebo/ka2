@@ -27,7 +27,7 @@ object RequestKeys {
   val OffsetsKey: Short = 2//获取topic-partition当前的offset偏移量
   val MetadataKey: Short = 3//获取topic元数据信息请求,参见TopicMetadataRequest,返回值包含TopicMetadata
   val LeaderAndIsrKey: Short = 4//更新每一个topic-partition对应的leader和同步节点集合,参见LeaderAndIsrRequest
-  val StopReplicaKey: Short = 5
+  val StopReplicaKey: Short = 5 //要到相应节点上去删除一些topic-partition本地日志
   val UpdateMetadataKey: Short = 6//更新现在活着的brokerId,以及topic-partition-PartitionStateInfo映射关系,参见UpdateMetadataRequest和MetadataCache
   val ControlledShutdownKey: Short = 7 //服务器要shutdown,因此向controller发送信息
   val OffsetCommitKey: Short = 8 //更新topic-partition的offset请求,版本号0的时候走一套老逻辑,版本号>0,则就当生产者请求处理,向特定topic存储该信息

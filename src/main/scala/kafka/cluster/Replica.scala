@@ -45,7 +45,7 @@ import java.util.concurrent.atomic.AtomicLong
  * 4.log: Option[Log] 如果该partition在本节点就存在一个备份,则肯定有一个日志跟着,因此该参数就存在内容,如果备份在本节点不存在,则该值就是null
  */
 class Replica(val brokerId: Int,//该partition在哪个节点上的备份
-              val partition: Partition,
+              val partition: Partition,//属于哪个partition的备份对象
               time: Time = SystemTime,
               initialHighWatermarkValue: Long = 0L,//该partition在本地的最高offset
               val log: Option[Log] = None) extends Logging {//该partition对应的本地log文件
@@ -87,6 +87,8 @@ class Replica(val brokerId: Int,//该partition在哪个节点上的备份
 
   //本地文件从log的信息中获取
   //非本地文件的话,则获取已经获取到的日志偏移量
+  //设置该follow节点已经同步到哪个位置了
+  //参见上面的方法是属于set方法,即logEndOffset_
   def logEndOffset =
     if (isLocal)
       log.get.logEndOffsetMetadata

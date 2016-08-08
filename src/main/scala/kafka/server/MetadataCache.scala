@@ -56,25 +56,25 @@ private[server] class MetadataCache {
       for (topic <- topicsRequested) {//循环每一个topic
         if (isAllTopics || cache.contains(topic)) {
           val partitionStateInfos = cache(topic) //返回值 Map[Int, PartitionStateInfo]
-          val partitionMetadata = partitionStateInfos.map {
+          val partitionMetadata = partitionStateInfos.map {//循环该topic的每一个partition
             case (partitionId, partitionState) =>
-              val replicas = partitionState.allReplicas
-              val replicaInfo: Seq[Broker] = replicas.map(aliveBrokers.getOrElse(_, null)).filter(_ != null).toSeq
-              var leaderInfo: Option[Broker] = None
-              var isrInfo: Seq[Broker] = Nil
+              val replicas = partitionState.allReplicas //所有的备份节点
+              val replicaInfo: Seq[Broker] = replicas.map(aliveBrokers.getOrElse(_, null)).filter(_ != null).toSeq //只要活着的备份节点集合
+              var leaderInfo: Option[Broker] = None //活着的leader节点信息
+              var isrInfo: Seq[Broker] = Nil //活着的同步节点集合
               val leaderIsrAndEpoch = partitionState.leaderIsrAndControllerEpoch
-              val leader = leaderIsrAndEpoch.leaderAndIsr.leader
-              val isr = leaderIsrAndEpoch.leaderAndIsr.isr
+              val leader = leaderIsrAndEpoch.leaderAndIsr.leader //该partition的leader节点
+              val isr = leaderIsrAndEpoch.leaderAndIsr.isr //该oartition的同步节点集合
               val topicPartition = TopicAndPartition(topic, partitionId)
               try {
-                leaderInfo = aliveBrokers.get(leader)
-                if (!leaderInfo.isDefined)
+                leaderInfo = aliveBrokers.get(leader) //获取leader节点信息
+                if (!leaderInfo.isDefined) //说明leader节点不存在了
                   throw new LeaderNotAvailableException("Leader not available for %s".format(topicPartition))
-                isrInfo = isr.map(aliveBrokers.getOrElse(_, null)).filter(_ != null)
-                if (replicaInfo.size < replicas.size)
+                isrInfo = isr.map(aliveBrokers.getOrElse(_, null)).filter(_ != null) //获取所有活着的同步节点信息
+                if (replicaInfo.size < replicas.size) //说明备份节点数量是不够的
                   throw new ReplicaNotAvailableException("Replica information not available for following brokers: " +
                     replicas.filterNot(replicaInfo.map(_.id).contains(_)).mkString(","))
-                if (isrInfo.size < isr.size)
+                if (isrInfo.size < isr.size) //说明同步节点集合的数量是不够的
                   throw new ReplicaNotAvailableException("In Sync Replica information not available for following brokers: " +
                     isr.filterNot(isrInfo.map(_.id).contains(_)).mkString(","))
                 new PartitionMetadata(partitionId, leaderInfo, replicaInfo, isrInfo, ErrorMapping.NoError)
@@ -100,6 +100,7 @@ private[server] class MetadataCache {
   }
 
   //添加topic-partition-PartitionStateInfo映射关系
+  //属于添加/修改
   def addOrUpdatePartitionInfo(topic: String,
                                partitionId: Int,
                                stateInfo: PartitionStateInfo) {
@@ -116,6 +117,7 @@ private[server] class MetadataCache {
   }
 
   //根据topic-partition返回缓存的PartitionStateInfo对象
+  //属于查询
   def getPartitionInfo(topic: String, partitionId: Int): Option[PartitionStateInfo] = {
     inReadLock(partitionMetadataLock) {
       cache.get(topic) match {
@@ -130,7 +132,7 @@ private[server] class MetadataCache {
                   brokerId: Int,
                   stateChangeLogger: StateChangeLogger) {
     inWriteLock(partitionMetadataLock) {
-      //更新最新的活的节点信息
+      //更新最新的活的节点信息,是一种覆盖行为
       aliveBrokers = updateMetadataRequest.aliveBrokers.map(b => (b.id, b)).toMap
       
       //更新topic-partition-PartitionStateInfo映射关系
@@ -155,12 +157,13 @@ private[server] class MetadataCache {
   }
 
   //移除topic-partition映射关系
+  //属于删除
   private def removePartitionInfo(topic: String, partitionId: Int) = {
     cache.get(topic) match {
       case Some(infos) => {
-        infos.remove(partitionId)
+        infos.remove(partitionId) //移除该partition
         if(infos.isEmpty) {
-          cache.remove(topic)
+          cache.remove(topic) //移除topic
         }
         true
       }

@@ -30,8 +30,8 @@ import collection.Set
 
 //isr:in-sync reassigned replica同步重新分配replica 
 object LeaderAndIsr {
-  val initialLeaderEpoch: Int = 0
-  val initialZKVersion: Int = 0
+  val initialLeaderEpoch: Int = 0 //初始化该partition的leader的选举次数
+  val initialZKVersion: Int = 0 //初始化该partition的leader的zookeeper版本号
   val NoLeader = -1//表示没有leader
   val LeaderDuringDelete = -2//表示该leader正在删除中
 }
@@ -51,6 +51,7 @@ case class LeaderAndIsr(var leader: Int, var leaderEpoch: Int, var isr: List[Int
   }
 }
 
+//描述一个partition的leader的详细信息和备份节点集合信息
 object PartitionStateInfo {
   def readFrom(buffer: ByteBuffer): PartitionStateInfo = {
     val controllerEpoch = buffer.getInt
@@ -67,21 +68,21 @@ object PartitionStateInfo {
 }
 
 /**
- * 描述当前partition的详细信息
+ * 描述当前partition的详细信息和备份节点集合信息
  * @param leaderIsrAndControllerEpoch 该partition的leader对象详细信息
  * @param allReplicas 该partition的备份节点集合
  */
 case class PartitionStateInfo(val leaderIsrAndControllerEpoch: LeaderIsrAndControllerEpoch,
                               val allReplicas: Set[Int]) {
-  def replicationFactor = allReplicas.size
+  def replicationFactor = allReplicas.size //备份节点数量
 
   def writeTo(buffer: ByteBuffer) {
-    buffer.putInt(leaderIsrAndControllerEpoch.controllerEpoch)
-    buffer.putInt(leaderIsrAndControllerEpoch.leaderAndIsr.leader)
-    buffer.putInt(leaderIsrAndControllerEpoch.leaderAndIsr.leaderEpoch)
+    buffer.putInt(leaderIsrAndControllerEpoch.controllerEpoch) //当前controller的选举次数
+    buffer.putInt(leaderIsrAndControllerEpoch.leaderAndIsr.leader) //当前leader节点信息
+    buffer.putInt(leaderIsrAndControllerEpoch.leaderAndIsr.leaderEpoch) //leader的选举次数
     buffer.putInt(leaderIsrAndControllerEpoch.leaderAndIsr.isr.size)//同步节点数量
     leaderIsrAndControllerEpoch.leaderAndIsr.isr.foreach(buffer.putInt(_))//同步的节点集合
-    buffer.putInt(leaderIsrAndControllerEpoch.leaderAndIsr.zkVersion)
+    buffer.putInt(leaderIsrAndControllerEpoch.leaderAndIsr.zkVersion) //当前leader节点在zookeeper上的版本号
     buffer.putInt(replicationFactor)//备份节点数量
     allReplicas.foreach(buffer.putInt(_))//备份节点集合
   }
@@ -142,12 +143,12 @@ object LeaderAndIsrRequest {
 
 //参数partitionStateInfos,key是topic-partition组成的元组,value是该partition所对应的备份信息
 case class LeaderAndIsrRequest (versionId: Short,
-                                correlationId: Int,
-                                clientId: String,
-                                controllerId: Int,
-                                controllerEpoch: Int,
-                                partitionStateInfos: Map[(String, Int), PartitionStateInfo],
-                                leaders: Set[Broker])
+                                correlationId: Int,//关联请求的唯一ID
+                                clientId: String,//客户端名称,一般是host-port等信息,意义不是很大
+                                controllerId: Int,//发送该请求的是哪个controller节点,此时controller节点就一个.通过这个参数可以知道controller节点是哪个
+                                controllerEpoch: Int,//此时controller选举的次数
+                                partitionStateInfos: Map[(String, Int), PartitionStateInfo],//该接收节点上此时每一个topic-partition对应的leader详细信息和备份节点集合
+                                leaders: Set[Broker])//这些topic-partition所在的leader节点集合
     extends RequestOrResponse(Some(RequestKeys.LeaderAndIsrKey)) {
 
   def this(partitionStateInfos: Map[(String, Int), PartitionStateInfo], leaders: Set[Broker], controllerId: Int,
@@ -162,14 +163,14 @@ case class LeaderAndIsrRequest (versionId: Short,
     writeShortString(buffer, clientId)
     buffer.putInt(controllerId)
     buffer.putInt(controllerEpoch)
-    buffer.putInt(partitionStateInfos.size)
+    buffer.putInt(partitionStateInfos.size) //多少个topic-partition
     for((key, value) <- partitionStateInfos){
-      writeShortString(buffer, key._1)
-      buffer.putInt(key._2)
-      value.writeTo(buffer)
+      writeShortString(buffer, key._1) //topic
+      buffer.putInt(key._2) //partition
+      value.writeTo(buffer) //具体的leader详细信息和备份节点集合信息
     }
-    buffer.putInt(leaders.size)
-    leaders.foreach(_.writeTo(buffer))
+    buffer.putInt(leaders.size) //多少个leader节点
+    leaders.foreach(_.writeTo(buffer))//每一个leader节点内容
   }
 
   def sizeInBytes(): Int = {

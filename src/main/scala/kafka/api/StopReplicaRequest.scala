@@ -27,7 +27,7 @@ import collection.Set
 
 
 object StopReplicaRequest extends Logging {
-  val CurrentVersion = 0.shortValue
+  val CurrentVersion = 0.shortValue //版本号
   val DefaultClientId = ""
   val DefaultAckTimeout = 100
 
@@ -37,7 +37,7 @@ object StopReplicaRequest extends Logging {
     val clientId = readShortString(buffer)
     val controllerId = buffer.getInt
     val controllerEpoch = buffer.getInt
-    val deletePartitions = buffer.get match {
+    val deletePartitions = buffer.get match { //true记录1,false记录0
       case 1 => true
       case 0 => false
       case x =>
@@ -46,20 +46,20 @@ object StopReplicaRequest extends Logging {
     val topicPartitionPairCount = buffer.getInt
     val topicPartitionPairSet = new collection.mutable.HashSet[TopicAndPartition]()
     (1 to topicPartitionPairCount) foreach { _ =>
-      topicPartitionPairSet.add(TopicAndPartition(readShortString(buffer), buffer.getInt))
+      topicPartitionPairSet.add(TopicAndPartition(readShortString(buffer), buffer.getInt)) //topic和partition
     }
     StopReplicaRequest(versionId, correlationId, clientId, controllerId, controllerEpoch,
                        deletePartitions, topicPartitionPairSet.toSet)
   }
 }
 
-case class StopReplicaRequest(versionId: Short,
-                              correlationId: Int,
+case class StopReplicaRequest(versionId: Short,//版本号
+                              correlationId: Int,//请求关联ID
                               clientId: String,
-                              controllerId: Int,
-                              controllerEpoch: Int,
-                              deletePartitions: Boolean,
-                              partitions: Set[TopicAndPartition])
+                              controllerId: Int,//controller节点ID
+                              controllerEpoch: Int,//controller此时被枚举的次数
+                              deletePartitions: Boolean,//是否要删除该partition文件日志
+                              partitions: Set[TopicAndPartition]) //要停止哪些topic-partition
         extends RequestOrResponse(Some(RequestKeys.StopReplicaKey)) {
 
   def this(deletePartitions: Boolean, partitions: Set[TopicAndPartition], controllerId: Int, controllerEpoch: Int, correlationId: Int) = {
@@ -73,7 +73,7 @@ case class StopReplicaRequest(versionId: Short,
     writeShortString(buffer, clientId)
     buffer.putInt(controllerId)
     buffer.putInt(controllerEpoch)
-    buffer.put(if (deletePartitions) 1.toByte else 0.toByte)
+    buffer.put(if (deletePartitions) 1.toByte else 0.toByte) //true记录1,false记录0
     buffer.putInt(partitions.size)
     for (topicAndPartition <- partitions) {
       writeShortString(buffer, topicAndPartition.topic)

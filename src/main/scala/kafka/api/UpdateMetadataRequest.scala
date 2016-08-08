@@ -61,12 +61,12 @@ object UpdateMetadataRequest {
  * @aliveBrokers 当前活着的broker节点信息
  */
 case class UpdateMetadataRequest (versionId: Short,
-                                  correlationId: Int,
+                                  correlationId: Int,//请求关联的ID
                                   clientId: String,
-                                  controllerId: Int,
-                                  controllerEpoch: Int,
-                                  partitionStateInfos: Map[TopicAndPartition, PartitionStateInfo],
-                                  aliveBrokers: Set[Broker])
+                                  controllerId: Int,//controller的节点ID
+                                  controllerEpoch: Int,//controller枚举的次数
+                                  partitionStateInfos: Map[TopicAndPartition, PartitionStateInfo],//要处理的partition和partition详细信息
+                                  aliveBrokers: Set[Broker]) //现在活着的节点集合
   extends RequestOrResponse(Some(RequestKeys.UpdateMetadataKey)) {
 
   def this(controllerId: Int, controllerEpoch: Int, correlationId: Int, clientId: String,

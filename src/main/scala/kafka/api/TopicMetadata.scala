@@ -160,7 +160,7 @@ object PartitionMetadata {
 case class PartitionMetadata(partitionId: Int, //属于第几个partition
                              val leader: Option[Broker], //该partition的leader在哪个broker上
                              replicas: Seq[Broker], //该partition的从节点在哪些节点上
-                             isr: Seq[Broker] = Seq.empty,
+                             isr: Seq[Broker] = Seq.empty,//该partitio在哪些节点集合上进行同步了
                              errorCode: Short = ErrorMapping.NoError) extends Logging { //错误码
   def sizeInBytes: Int = {
     2 /* error code */ + 

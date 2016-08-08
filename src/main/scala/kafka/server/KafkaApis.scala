@@ -127,7 +127,7 @@ class KafkaApis(val requestChannel: RequestChannel,
     // ensureTopicExists is only for client facing requests
     // We can't have the ensureTopicExists check here since the controller sends it as an advisory to all brokers so they
     // stop serving data to clients for the topic being deleted
-    val leaderAndIsrRequest = request.requestObj.asInstanceOf[LeaderAndIsrRequest]
+    val leaderAndIsrRequest = request.requestObj.asInstanceOf[LeaderAndIsrRequest] //反序列化controller发过来的partition的leader详细信息和备份节点集合
     try {
       val (response, error) = replicaManager.becomeLeaderOrFollower(leaderAndIsrRequest, offsetManager)
       val leaderAndIsrResponse = new LeaderAndIsrResponse(leaderAndIsrRequest.correlationId, response, error)
@@ -381,6 +381,7 @@ class KafkaApis(val requestChannel: RequestChannel,
     // update its corresponding log end offset
     //如果该请求来自于follower节点,则更新操作
     if(fetchRequest.isFromFollower)
+      //_.offset是PartitionDataAndOffset.offset,即LogOffsetMetadata对象
       recordFollowerLogEndOffsets(fetchRequest.replicaId, dataRead.mapValues(_.offset))//记录该follower节点replicaId,已经同步给他了每一个topic-partition到哪个offset了
 
     // check if this fetch request can be satisfied right away

@@ -179,12 +179,19 @@ class Partition(val topic: String,
   /**
    *  Make the local replica the leader by resetting LogEndOffset for remote replicas (there could be old LogEndOffset from the time when this broker was the leader last time)
    *  and setting the new leader and ISR
+   *  说明该partition在该节点是leader了
+   *
+   *  更新三大指标
+   *  1.leader节点为本地节点
+   *  2.备份节点集合
+   *  3.同步节点集合
    */
-  def makeLeader(controllerId: Int,
-                 partitionStateInfo: PartitionStateInfo, correlationId: Int,
+  def makeLeader(controllerId: Int,//controller节点
+                 partitionStateInfo: PartitionStateInfo,//此时该partition的leader详细信息
+                 correlationId: Int,//请求关联的ID
                  offsetManager: OffsetManager): Boolean = {
     inWriteLock(leaderIsrUpdateLock) {
-      val allReplicas = partitionStateInfo.allReplicas
+      val allReplicas = partitionStateInfo.allReplicas //所有的备份节点ID集合
       val leaderIsrAndControllerEpoch = partitionStateInfo.leaderIsrAndControllerEpoch
       val leaderAndIsr = leaderIsrAndControllerEpoch.leaderAndIsr//LeaderAndIsr对象
       // record the epoch of the controller that made the leadership decision. This is useful while updating the isr
@@ -193,8 +200,8 @@ class Partition(val topic: String,
       
       //更新内存映射关系
       // add replicas that are new 在partition对象内存中,映射新的Replica集合关系
-      allReplicas.foreach(replica => getOrCreateReplica(replica))
-      val newInSyncReplicas = leaderAndIsr.isr.map(r => getOrCreateReplica(r)).toSet
+      allReplicas.foreach(replica => getOrCreateReplica(replica)) //将备份节点ID集合转换成Replica集合,没有则添加,有则返回
+      val newInSyncReplicas = leaderAndIsr.isr.map(r => getOrCreateReplica(r)).toSet //将同步节点集合ID 转换成Replica集合,没有则添加,有则返回
       // remove assigned replicas that have been removed by the controller
       //Set[Replica]中仅仅获取brokerId集合,然后从该集合中移除allReplicas集合内容.则表示已经删除的partition备份数据,因此调用removeReplica(_)移除
       (assignedReplicas().map(_.brokerId) -- allReplicas).foreach(removeReplica(_))
@@ -207,6 +214,7 @@ class Partition(val topic: String,
       val newLeaderReplica = getReplica().get //获取本地 的Replica对象
       newLeaderReplica.convertHWToLocalOffsetMetadata()
       // reset log end offset for remote replicas 重新设置远程的replica对象的结束位置
+      //因为本节点已经是该partiiton的leader节点了,因此本节点该partition的所有的follow都要重置偏移量
       assignedReplicas.foreach(r => if (r.brokerId != localBrokerId) r.logEndOffset = LogOffsetMetadata.UnknownOffsetMetadata)
       // we may need to increment high watermark since ISR could be down to 1
       maybeIncrementLeaderHW(newLeaderReplica)
@@ -221,12 +229,19 @@ class Partition(val topic: String,
    *  使local replica变化为 follower节点,更新new leader引用,以及将ISR集合设置为空集合
    *  If the leader replica id does not change, return false to indicate the replica manager
    *  如果leader节点没有被更改,则返回false给replica manager
+   *  说明该节点此时是follow节点
+   *
+   *  更新三大指标
+   *  1.leader节点
+   *  2.备份节点集合
+   *  3.同步节点集合,因为是follow节点,不需要知道有哪些同步节点,因此设置为空集合即可
    */
-  def makeFollower(controllerId: Int,
-                   partitionStateInfo: PartitionStateInfo,
-                   correlationId: Int, offsetManager: OffsetManager): Boolean = {
+  def makeFollower(controllerId: Int,//controller节点ID
+                   partitionStateInfo: PartitionStateInfo,//此时poartition的leader详细信息
+                   correlationId: Int,//请求关联的ID
+                   offsetManager: OffsetManager): Boolean = {
     inWriteLock(leaderIsrUpdateLock) {
-      val allReplicas = partitionStateInfo.allReplicas
+      val allReplicas = partitionStateInfo.allReplicas //获取此时所有的备份节点集合
       val leaderIsrAndControllerEpoch = partitionStateInfo.leaderIsrAndControllerEpoch
       val leaderAndIsr = leaderIsrAndControllerEpoch.leaderAndIsr //LeaderAndIsr对象
       val newLeaderBrokerId: Int = leaderAndIsr.leader //leader节点ID
@@ -236,10 +251,10 @@ class Partition(val topic: String,
       
       //更新内存映射关系
       // add replicas that are new  在partition对象内存中,映射新的Replica集合关系
-      allReplicas.foreach(r => getOrCreateReplica(r))
+      allReplicas.foreach(r => getOrCreateReplica(r)) //将备份节点ID集合--转换成备份节点对象集合
       // remove assigned replicas that have been removed by the controller
       //Set[Replica]中仅仅获取brokerId集合,然后从该集合中移除allReplicas集合内容.则表示已经删除的partition备份数据,因此调用removeReplica(_)移除
-      (assignedReplicas().map(_.brokerId) -- allReplicas).foreach(removeReplica(_))
+      (assignedReplicas().map(_.brokerId) -- allReplicas).foreach(removeReplica(_)) //有一些节点上已经不是备份节点了,则要删除掉
       inSyncReplicas = Set.empty[Replica] //因为不是leader,因此将需要同步的集合设置为空集合
       leaderEpoch = leaderAndIsr.leaderEpoch //设置leader的选举次数
       zkVersion = leaderAndIsr.zkVersion
@@ -294,12 +309,14 @@ class Partition(val topic: String,
 
   /**
    * @requiredOffset 表示要求每一个备份文件必须要大于该阀值才作为可用备份
-   * @requiredAcks 是否需要返回值
+   * @requiredAcks 要求有这些数量的合法的备份数才是true
+   *
+   * 因为leader节点会记录每一个同步节点同步到哪个位置了
    */
   def checkEnoughReplicasReachOffset(requiredOffset: Long, requiredAcks: Int): (Boolean, Short) = {
     leaderReplicaIfLocal() match {
       case Some(leaderReplica) =>
-        // keep the current immutable replica list reference
+        // keep the current immutable replica list reference 保持当前的同步节点集合
         val curInSyncReplicas = inSyncReplicas
         
         //计算所有备份数据中大于给定参数requiredOffset偏移量的备份数据集合数量
@@ -309,9 +326,12 @@ class Partition(val topic: String,
           else
             true /* also count the local (leader) replica */
         })
+
+        //表示partition的最小同步数量,即达到该数量的备份数,就可以认为是成功备份了
         val minIsr = leaderReplica.log.get.config.minInSyncReplicas
 
         trace("%d/%d acks satisfied for %s-%d".format(numAcks, requiredAcks, topic, partitionId))
+        //requiredAcks < 0 说明没有设置要多少个备份数
         if (requiredAcks < 0 && leaderReplica.highWatermark.messageOffset >= requiredOffset ) {
           /*
           * requiredAcks < 0 means acknowledge after all replicas in ISR
@@ -328,7 +348,7 @@ class Partition(val topic: String,
           } else {
             (true, ErrorMapping.NotEnoughReplicasAfterAppendCode) //说明没有足够多的partition备份节点去备份数据
           }
-        } else if (requiredAcks > 0 && numAcks >= requiredAcks) {
+        } else if (requiredAcks > 0 && numAcks >= requiredAcks) {//有足够的备份数量,因为这部分说明已经设置了需要多少个备份
           (true, ErrorMapping.NoError)
         } else
           (false, ErrorMapping.NoError)
@@ -365,15 +385,20 @@ class Partition(val topic: String,
    * @replicaMaxLagMessages 表示从leader节点同步数据的最大字节长度阀值
    * 
    * 该方法表示收缩同步集合,因为有一些同步节点有问题,导致不再向该集合发送同步数据
+   *  注意；只有leader节点才能去查看哪些同步节点没有成功
+   *
+   *  该类表示收缩同步节点集合,Shrink表示收缩的意思
    */
   def maybeShrinkIsr(replicaMaxLagTimeMs: Long,  replicaMaxLagMessages: Long) {
     inWriteLock(leaderIsrUpdateLock) {
       leaderReplicaIfLocal() match {
         case Some(leaderReplica) =>
+          // 注意；只有leader节点才能去查看哪些同步节点没有成功
           val outOfSyncReplicas = getOutOfSyncReplicas(leaderReplica, replicaMaxLagTimeMs, replicaMaxLagMessages) //获取有卡住的备份集合
-          if(outOfSyncReplicas.size > 0) {
-            val newInSyncReplicas = inSyncReplicas -- outOfSyncReplicas //抛出有问题的备份集合,剩余可用的集合
+          if(outOfSyncReplicas.size > 0) {//说明有同步节点没跟上进度
+            val newInSyncReplicas = inSyncReplicas -- outOfSyncReplicas //刨除有问题的备份集合,剩余可用的集合
             assert(newInSyncReplicas.size > 0)
+            //打印日志,要收缩该topic-partition的同步集合,原来同步集合是什么,现在同步集合是什么
             info("Shrinking ISR for partition [%s,%d] from %s to %s".format(topic, partitionId,
               inSyncReplicas.map(_.brokerId).mkString(","), newInSyncReplicas.map(_.brokerId).mkString(",")))
             // update ISR in zk and in cache 向zookeeper更新新的同步集合
@@ -382,7 +407,7 @@ class Partition(val topic: String,
             maybeIncrementLeaderHW(leaderReplica)
             replicaManager.isrShrinkRate.mark()
           }
-        case None => // do nothing if no longer leader
+        case None => // do nothing if no longer leader 不是leader,不做任何事情
       }
     }
   }
@@ -393,6 +418,9 @@ class Partition(val topic: String,
    * @leaderReplica 表示leader的备份对象
    * @keepInSyncTimeMs 表示最长时间不能从leader接收信息阀值
    * @keepInSyncMessages 表示从leader节点同步数据的最大字节长度阀值
+   * 返回值是有问题的备份集合
+   *
+   * 注意；只有leader节点才能去查看哪些同步节点没有成功
    */
   def getOutOfSyncReplicas(leaderReplica: Replica, keepInSyncTimeMs: Long, keepInSyncMessages: Long): Set[Replica] = {
     /**
@@ -405,7 +433,7 @@ class Partition(val topic: String,
      *                     表示同步太慢
      **/
     val leaderLogEndOffset = leaderReplica.logEndOffset
-    val candidateReplicas = inSyncReplicas - leaderReplica //候选人集合 Set[Replica]
+    val candidateReplicas = inSyncReplicas - leaderReplica //刨除leader的同步集合 Set[Replica]
     // Case 1 above 查找不卡住的备份对象,即长时间没有同步信息
     val stuckReplicas = candidateReplicas.filter(r => (time.milliseconds - r.logEndOffsetUpdateTimeMs) > keepInSyncTimeMs)
     if(stuckReplicas.size > 0)
@@ -434,7 +462,6 @@ class Partition(val topic: String,
             throw new NotEnoughReplicasException("Number of insync replicas for partition [%s,%d] is [%d], below required minimum [%d]"
               .format(topic,partitionId,minIsr,inSyncSize))
           }
-//
           //追加信息到leader所在的日志文件中
           val info = log.append(messages, assignOffsets = true)
           // probably unblock some follower fetch requests since log end offset has been updated
@@ -449,7 +476,7 @@ class Partition(val topic: String,
     }
   }
 
-  //对leader节点对应的Isr集合更新
+  //对leader节点更新对应的同步节点集合
   private def updateIsr(newIsr: Set[Replica]) {
     //将新的ISR集合更新到zookeeper中
     val newLeaderAndIsr = new LeaderAndIsr(localBrokerId, leaderEpoch, newIsr.map(r => r.brokerId).toList, zkVersion)

@@ -1039,6 +1039,9 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
     }
   }
 
+  /**
+   * 不去更新leader和同步集合,而是更新选举次数
+   */
   private def updateLeaderEpochAndSendRequest(topicAndPartition: TopicAndPartition, replicasToReceiveRequest: Seq[Int], newAssignedReplicas: Seq[Int]) {
     brokerRequestBatch.newBatch()
     updateLeaderEpoch(topicAndPartition.topic, topicAndPartition.partition) match {
@@ -1247,6 +1250,7 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
         case Some(leaderIsrAndEpoch) =>
           val leaderAndIsr = leaderIsrAndEpoch.leaderAndIsr
           val controllerEpoch = leaderIsrAndEpoch.controllerEpoch
+          //校验是不是有其他controller存在了,该类本身已经controller过期了
           if(controllerEpoch > epoch)
             throw new StateChangeFailedException("Leader and isr path written by another controller. This probably" +
               "means the current controller with epoch %d went through a soft failure and another ".format(epoch) +
@@ -1255,7 +1259,7 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
           // assigned replica list
           val newLeaderAndIsr = new LeaderAndIsr(leaderAndIsr.leader, leaderAndIsr.leaderEpoch + 1,
                                                  leaderAndIsr.isr, leaderAndIsr.zkVersion + 1)
-          // update the new leadership decision in zookeeper or retry
+          // update the new leadership decision in zookeeper or retry 向zookeeper中写入新的leader节点信息
           val (updateSucceeded, newVersion) = ReplicationUtils.updateLeaderAndIsr(zkClient, topic,
             partition, newLeaderAndIsr, epoch, leaderAndIsr.zkVersion)
 

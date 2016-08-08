@@ -354,7 +354,7 @@ class ControllerBrokerRequestBatch(controller: KafkaController) extends  Logging
   def sendRequestsToBrokers(controllerEpoch: Int, correlationId: Int) {
     leaderAndIsrRequestMap.foreach { m =>
       val broker = m._1
-      val partitionStateInfos = m._2.toMap
+      val partitionStateInfos = m._2.toMap //mutable.HashMap[(String, Int), PartitionStateInfo] 每一个topic-partition,对应一个PartitionStateInfo对象
       val leaderIds = partitionStateInfos.map(_._2.leaderIsrAndControllerEpoch.leaderAndIsr.leader).toSet //所有的leader节点集合
       val leaders = controllerContext.liveOrShuttingDownBrokers.filter(b => leaderIds.contains(b.id)) //包含leader节点的活着的节点集合
       val leaderAndIsrRequest = new LeaderAndIsrRequest(partitionStateInfos, leaders, controllerId, controllerEpoch, correlationId, clientId)
@@ -365,7 +365,7 @@ class ControllerBrokerRequestBatch(controller: KafkaController) extends  Logging
                                                                  p._2.leaderIsrAndControllerEpoch, correlationId, broker,
                                                                  p._1._1, p._1._2))
       }
-      controller.sendRequest(broker, leaderAndIsrRequest, null)
+      controller.sendRequest(broker, leaderAndIsrRequest, null) //向该节点发送每一个topic-partition的详细信息
     }
     leaderAndIsrRequestMap.clear()
 

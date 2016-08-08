@@ -40,9 +40,9 @@ object ErrorMapping {
   val BrokerNotAvailableCode: Short = 8
   val ReplicaNotAvailableCode: Short = 9
   val MessageSizeTooLargeCode: Short = 10
-  val StaleControllerEpochCode: Short = 11//controller的epoche版本号异常
+  val StaleControllerEpochCode: Short = 11//controller的epoche版本号异常,即controller的枚举次数不对
   val OffsetMetadataTooLargeCode: Short = 12 //offset的描述信息过长
-  val StaleLeaderEpochCode: Short = 13
+  val StaleLeaderEpochCode: Short = 13 //说明本地的partition的leader枚举次数比请求的还要大,因此说明该topic-partition有问题
   val OffsetsLoadInProgressCode: Short = 14//偏移量信息正在被加载,参见OffsetManager的getOffsets方法
   val ConsumerCoordinatorNotAvailableCode: Short = 15
   val NotCoordinatorForConsumerCode: Short = 16
