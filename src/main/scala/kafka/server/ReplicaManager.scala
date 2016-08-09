@@ -67,7 +67,7 @@ class ReplicaManager(val config: KafkaConfig,
   //key是log磁盘根目录,value是replication-offset-checkpoint文件
   val highWatermarkCheckpoints = config.logDirs.map(dir => (new File(dir).getAbsolutePath, new OffsetCheckpoint(new File(dir, ReplicaManager.HighWatermarkFilename)))).toMap
 
-  private var hwThreadInitialized = false
+  private var hwThreadInitialized = false //true表示已经打开了一个线程,定期向replication-offset-checkpoint文件写入数据
   this.logIdent = "[Replica Manager on Broker " + localBrokerId + "]: "
   val stateChangeLogger = KafkaController.stateChangeLogger
 
@@ -94,8 +94,8 @@ class ReplicaManager(val config: KafkaConfig,
       def value = underReplicatedPartitionCount()
     }
   )
-  val isrExpandRate = newMeter("IsrExpandsPerSec",  "expands", TimeUnit.SECONDS)
-  val isrShrinkRate = newMeter("IsrShrinksPerSec",  "shrinks", TimeUnit.SECONDS)
+  val isrExpandRate = newMeter("IsrExpandsPerSec",  "expands", TimeUnit.SECONDS) //扩展同步节点集合
+  val isrShrinkRate = newMeter("IsrShrinksPerSec",  "shrinks", TimeUnit.SECONDS) //缩小同步节点集合
 
   def underReplicatedPartitionCount(): Int = {
       getLeaderPartitions().count(_.isUnderReplicated)
@@ -141,6 +141,7 @@ class ReplicaManager(val config: KafkaConfig,
     satisfied.foreach(fetchRequestPurgatory.respond(_))
   }
 
+  //入口函数
   def startup() {
     // start ISR expiration thread
     scheduler.schedule("isr-expiration", maybeShrinkIsr, period = config.replicaLagTimeMaxMs, unit = TimeUnit.MILLISECONDS)
@@ -429,6 +430,7 @@ class ReplicaManager(val config: KafkaConfig,
 
         // we initialize highwatermark thread after the first leaderisrrequest. This ensures that all the partitions
         // have been completely populated before starting the checkpointing there by avoiding weird race conditions
+        //只有第一次收到leaderAndISRRequest请求后,才会开启线程,防止没有partition的数据,空向线程写入数据
         if (!hwThreadInitialized) {
           startHighWaterMarksCheckPointThread()
           hwThreadInitialized = true
@@ -441,7 +443,7 @@ class ReplicaManager(val config: KafkaConfig,
 
   /*
    * Make the current broker to become leader for a given set of partitions by:
-   * 使当前节点变成partitionState集合内所有topic-partition的leader节点
+   * partitionState集合内所有topic-partitio的leader节点都是本节点
    * 1. Stop fetchers for these partitions 停止抓去这些partition信息,因为这些partition已经是leader了,不需要在去抓去了
    * 2. Update the partition metadata in cache 更新partition的元数据信息
    * 3. Add these partitions to the leader partitions set 添加这些partition到leader集合中
@@ -510,6 +512,7 @@ class ReplicaManager(val config: KafkaConfig,
    *
    * If an unexpected error is thrown in this function, it will be propagated to KafkaApis where
    * the error message will be set on each partition since we do not know which partition caused it
+   * 该partition在该节点是follow节点,说明在该节点上一定要有日志存储信息
    */
   private def makeFollowers(controllerId: Int,//controller的节点ID
                             epoch: Int, //controller的枚举次数
@@ -559,6 +562,7 @@ class ReplicaManager(val config: KafkaConfig,
         }
       }
 
+      //因为leader已经更换了,因此以前抓去的地方已经错误了,因此要先停止抓去
       replicaFetcherManager.removeFetcherForPartitions(partitionsToMakeFollower.map(new TopicAndPartition(_)))
       partitionsToMakeFollower.foreach { partition =>
         stateChangeLogger.trace(("Broker %d stopped fetchers as part of become-follower request from controller " +
@@ -566,6 +570,7 @@ class ReplicaManager(val config: KafkaConfig,
           .format(localBrokerId, controllerId, epoch, correlationId, TopicAndPartition(partition.topic, partition.partitionId)))
       }
 
+      //截短,将大于参数序号的message都删除掉,获取该topic-partition在本地的备份对象,并且知道该备份对象已经同步到哪里了
       logManager.truncateTo(partitionsToMakeFollower.map(partition => (new TopicAndPartition(partition), partition.getOrCreateReplica().highWatermark.messageOffset)).toMap)
 
       partitionsToMakeFollower.foreach { partition =>
@@ -574,7 +579,7 @@ class ReplicaManager(val config: KafkaConfig,
           partition.topic, partition.partitionId, correlationId, controllerId, epoch))
       }
 
-      if (isShuttingDown.get()) {
+      if (isShuttingDown.get()) { //如果该节点正在关闭中,则不用在去追加这些leader数据了
         partitionsToMakeFollower.foreach { partition =>
           stateChangeLogger.trace(("Broker %d skipped the adding-fetcher step of the become-follower state change with correlation id %d from " +
             "controller %d epoch %d for partition [%s,%d] since it is shutting down").format(localBrokerId, correlationId,
@@ -586,8 +591,10 @@ class ReplicaManager(val config: KafkaConfig,
         val partitionsToMakeFollowerWithLeaderAndOffset = partitionsToMakeFollower.map(partition =>
           new TopicAndPartition(partition) -> BrokerAndInitialOffset(
             leaders.find(_.id == partition.leaderReplicaIdOpt.get).get,
-            partition.getReplica().get.logEndOffset.messageOffset)).toMap
-        replicaFetcherManager.addFetcherForPartitions(partitionsToMakeFollowerWithLeaderAndOffset)
+            partition.getReplica().get.logEndOffset.messageOffset)).toMap//找到每一个partition在本地的日志,去进行抓去
+
+        //添加抓去这些partition,去leader节点抓去数据
+        replicaFetcherManager.addFetcherForPartitions(partitionsToMakeFollowerWithLeaderAndOffset) //参数Map[TopicAndPartition, BrokerAndInitialOffset]
 
         partitionsToMakeFollower.foreach { partition =>
           stateChangeLogger.trace(("Broker %d started fetcher to new leader as part of become-follower request from controller " +
@@ -640,7 +647,7 @@ class ReplicaManager(val config: KafkaConfig,
         partition.getReplica(replicaId) match {
           case Some(replica) =>
             replica.logEndOffset = offset
-            // check if we need to update HW and expand Isr
+            // check if we need to update HW and expand Isr 更新leader的信息以及可能扩展该备份节点到同步节点集合中
             partition.updateLeaderHWAndMaybeExpandIsr(replicaId)
             debug("Recorded follower %d position %d for partition [%s,%d].".format(replicaId, offset.messageOffset, topic, partitionId))
           case None =>

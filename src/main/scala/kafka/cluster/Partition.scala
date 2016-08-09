@@ -276,28 +276,29 @@ class Partition(val topic: String,
     }
   }
 
-  //对leader节点进行更新
+  //对leader节点进行更新,并且扩展同步节点集合
   def updateLeaderHWAndMaybeExpandIsr(replicaId: Int) {
     inWriteLock(leaderIsrUpdateLock) {
       // check if this replica needs to be added to the ISR
-      //获取leader节点
+      //获取leader节点,并且本地是leader节点
       leaderReplicaIfLocal() match {
         case Some(leaderReplica) =>
           //获取leader节点成功
-          val replica = getReplica(replicaId).get //返回leader节点对应的Replica对象
-          val leaderHW = leaderReplica.highWatermark //返回Replica对应的LogOffsetMetadata对象
+          val replica = getReplica(replicaId).get //返回一个备份节点对应的Replica对象
+          val leaderHW = leaderReplica.highWatermark //返回Leader对应的LogOffsetMetadata对象
           // For a replica to get added back to ISR, it has to satisfy 3 conditions-
-          // 1. It is not already in the ISR ,leader节点不能再ISR同步节点里面存在
+          //要满足三个条件,就将该备份加入到同步节点集合中,即当前不再同步节点集合、该节点在备份节点集合中、当前节点的位置已经达到了leader节点的位置了,则说明可以做为同步节点了
+          // 1. It is not already in the ISR ,节点不在ISR同步节点里面存在
           // 2. It is part of the assigned replica list. See KAFKA-1097 该partition备份节点中包含replicaId节点,即replicaId节点确定有partition备份
-          // 3. It's log end offset >= leader's high watermark
+          // 3. It's log end offset >= leader's high watermark 该partition的位置>=leader的位置
           if (!inSyncReplicas.contains(replica) &&
             assignedReplicas.map(_.brokerId).contains(replicaId) &&
             replica.logEndOffset.offsetDiff(leaderHW) >= 0) {
-            // expand ISR
+            // expand ISR 进行同步备份节点集合
             val newInSyncReplicas = inSyncReplicas + replica
             info("Expanding ISR for partition [%s,%d] from %s to %s"
                  .format(topic, partitionId, inSyncReplicas.map(_.brokerId).mkString(","), newInSyncReplicas.map(_.brokerId).mkString(",")))
-            // update ISR in ZK and cache
+            // update ISR in ZK and cache 仅仅扩展同步节点集合
             updateIsr(newInSyncReplicas)
             replicaManager.isrExpandRate.mark()
           }

@@ -27,14 +27,7 @@
 
 
 未解之谜
-1.kafka的基础是partition
-2.为了防止partition在本机不可用,则设置了备份
-3.一个备份是Replica
-4.一个partition的备份管理由ReplicaManager管理
-
-他们之间是怎么个关系呢？
-有点晕
-
+partition的getOrCreateReplica方法,为什么要与log.logEndOffset的进行比较,获取较小的值,创建备份对象
 
 因为topic的partition在哪些节点上,zookeeper上是有记录的
 因此在这些节点上才能找到对应的partition

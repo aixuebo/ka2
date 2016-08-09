@@ -66,7 +66,7 @@ class ReplicaFetcherThread(name:String,
       // for the follower replica, we do not need to keep
       // its segment base offset the physical position,
       // these values will be computed upon making the leader
-      //做为跟随节点,因此我们不需要保持物理文件的基础位置,这个值仅仅需要被leader计算即可,因此我们只需要记录了followerHighWatermark值即可
+      //做为跟随节点,因此我们不需要保存物理位置的开始位置,我们只需要保存更新到哪个位置即可
       replica.highWatermark = new LogOffsetMetadata(followerHighWatermark)
       trace("Follower %d set replica high watermark for partition [%s,%d] to %s"
             .format(replica.brokerId, topic, partitionId, followerHighWatermark))

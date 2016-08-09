@@ -1,0 +1,652 @@
+ReplicaManager 管理该节点上partition的类
+作用
+1.一个partition对应一个partition对象---每一个partition对象包含了他所有的备份节点对象
+2.接受leaderAndISRRequest请求,通知该节点上存在哪些partition,以及这些partition的leader和备份节点集合详细信息
+3.接受StopReplicaRequest请求,对一组topic-partition要在该节点上删除掉,即该节点不再处理这些partition信息了
+
+一、构造函数需要的主要对象
+1.LogManager 用于在本节点上对一个partiton创建一个日志文件,存储该partition的内容,一个partition理论上在一个节点上只是会出现一个,不然log对象会冲突的。
+ 该partition的日志可以是leader的日志文件,也可以使follow的文件,从leader节点同步过来的数据存储在本地。
+2.ZkClient 连接zookeeper
+
+二、属性
+1.private val allPartitions = new Pool[(String, Int), Partition]//就是一个Map,通过(String, Int)参数可以返回一个Partition对象
+  key是topic-partition组成,value是组成的Partition对象,该对象管理这副本备份信息
+2.@volatile var controllerEpoch: Int = KafkaController.InitialControllerEpoch - 1
+  表示controller的最新的选举次数,默认是很小的值,当每次请求过来的时候,都会与该值进行校验,然后更新该值,因此当第一个请求过来的时候,该值就会被重新赋值,就是最新的controller选举次数
+3.private val localBrokerId = config.brokerId//本地属于哪个节点ID
+4.private var hwThreadInitialized = false //true表示已经打开了一个线程,定期向replication-offset-checkpoint文件写入数据
+  只有第一次收到leaderAndISRRequest请求后,才会开启线程,防止没有partition的数据,空向线程写入数据
+
+
+
+
+三、创建partition和Parttion对象的映射关系
+使该节点上知道有一个partition在该节点上存在了
+1.getOrCreatePartition(topic: String, partitionId: Int): Partition 创建或者get一个partition对象
+ new Partition(topic, partitionId, time, this) 创建的时候,partition会持有该ReplicaManager对象引用
+2.getPartition(topic: String, partitionId: Int): Option[Partition] 只是get,不会创建
+3.def getReplica(topic: String, partitionId: Int, replicaId: Int = config.brokerId): Option[Replica] 获取该partition的一个备份信息
+ 通过topic和partitionId,获取Partition对象---通过replicaId获取在replicaId节点上的备份对象信息,默认获取本节点的备份对象
+4.def getReplicaOrException(topic: String, partition: Int): Replica
+  获取本节点上的备份对象,如果不存在则抛异常
+5.def getLeaderReplicaIfLocal(topic: String, partitionId: Int): Replica
+   获取本节点上的备份对象,如果不存在则抛异常,如果存在,但不是leader节点,也抛异常
+
+四、becomeLeaderOrFollower(leaderAndISRRequest: LeaderAndIsrRequest,offsetManager: OffsetManager): (collection.Map[(String, Int), Short], Short)
+接受leaderAndISRRequest请求,通知该节点上存在哪些partition,以及这些partition的leader和备份节点集合详细信息
+1.先打印日志,说明此时该partition的详细信息
+2.校验该controller的请求是否合法
+3.更新controller的最新的选举次数
+ controllerEpoch = leaderAndISRRequest.controllerEpoch //当前controller枚举次数
+4.val partitionState = new HashMap[Partition, PartitionStateInfo]() 更新每一个partition对应的leader的详细信息
+循环所有的partition请求,为每一个partition(创建/get)一个Partition对象,即有则获取,无则创建,并且存储到partitionState中,这样每一个partition就有了请求的partition详细信息对应关系了
+注意:这一步骤不是把所有的请求partition都加入映射,要过滤掉partition的leader枚举次数非法的,如果partition的备份节点并没有该节点,则也会被过滤掉
+5.从4中得到的partition,按照leader节点是不是本节点进行分组,就会产生两个分组.partitionsTobeLeader本节点是partition的leader节点、partitionsToBeFollower本节点是partition的follow节点
+6.然后分别处理这两个分组------参见五和六
+makeLeaders(controllerId, controllerEpoch, partitionsTobeLeader, leaderAndISRRequest.correlationId, responseMap, offsetManager)
+makeFollowers(controllerId, controllerEpoch, partitionsToBeFollower, leaderAndISRRequest.leaders, leaderAndISRRequest.correlationId, responseMap, offsetManager)
+7.只有第一次收到leaderAndISRRequest请求后,才会开启线程,防止没有partition的数据,空向线程写入数据
+  开启线程,定期向replication-offset-checkpoint文件写入信息
+8.replicaFetcherManager.shutdownIdleFetcherThreads()
+  将闲置的线程进行shutdown
+
+五、makeLeaders(controllerId: Int,//controller节点ID,即哪个节点发过来的请求
+                            epoch: Int,//controller的枚举次数
+                            partitionState: Map[Partition, PartitionStateInfo],//当前要在该节点做leader的partition和leader的详细信息映射
+                            correlationId: Int,//客户端发送过来的请求的关联ID
+                            responseMap: mutable.Map[(String, Int), Short],//为每一个有异常的topic-partition提供异常状态码
+                            offsetManager: OffsetManager)
+partitionState集合内所有topic-partitio的leader节点都是本节点
+1.打印每一个partition日志,说明该partition在该节点已经是leader了,开始处理逻辑
+2. replicaFetcherManager.removeFetcherForPartitions(partitionState.keySet.map(new TopicAndPartition(_)))
+  停止抓取这些partition,因为已经是leader了,不需要抓数据了
+3.partitionState.foreach{ case (partition, partitionStateInfo) => partition.makeLeader(controllerId, partitionStateInfo, correlationId, offsetManager)}
+ 通知每一个partition对象,该partition在该节点已经是leader了
+ 立刻看partition类的makeLeader方法
+4.打印日志每一个partition已经完成了处理
+
+六、def makeFollowers(controllerId: Int,//controller的节点ID
+                              epoch: Int, //controller的枚举次数
+                              partitionState: Map[Partition, PartitionStateInfo],//follow节点的集合
+                              leaders: Set[Broker], //leader节点集合
+                              correlationId: Int, //request请求的关联ID
+                              responseMap: mutable.Map[(String, Int), Short],//返回给controller的每一个topic-partition的状态码
+                              offsetManager: OffsetManager) {
+该partition在该节点是follow节点,说明在该节点上一定要有日志存储信息
+1.打印日志,这些partition在本节点上要开始做follower了
+2. var partitionsToMakeFollower: Set[Partition] = Set()存储已经变更了leader节点的partition
+循环每一个partition---如果该partition的leader节点是在leader节点集合中,并且leader节点有变化了,则添加到集合中
+3.停止2中所有的partition的抓去工作,因为leader已经更换了,因此以前抓去的地方已经错误了,因此要先停止抓去
+4.将topic-partition在本地的备份log进行截断,截断到该备份对象里面存储的该备份同步leader到哪个位置了
+ 其实不是特别理解为什么要截断,如果以前是leader,现在变成follow了,或者以前向leader1进行同步,现在向leader2进行同步,但是为什么要截断呢
+ 其实我目前来看,最重要的就是更新日志的位置,下一次抓去的时候从该位置开始抓去,但是不截断，也是可以从该位置开始更新的啊。为什么要截断操作呢
+5.对这些topic-partition重新向新的leader进行抓去数据
+ 如果服务器已经shutdown了,则不需要再进行更新leader数据了,否则要重新连接新的leader,进行数据抓取
+6.打印日志每一个partition已经完成了处理
+
+七、def stopReplica(topic: String, partitionId: Int, deletePartition: Boolean): Short
+该节点不再存储该topic-partition备份信息
+1.删除partition和partition对象的映射
+2.删除本地关于该partition的日志文件
+八、def stopReplicas(stopReplicaRequest: StopReplicaRequest): (mutable.Map[TopicAndPartition, Short], Short)
+对一组topic-partition要在该节点上删除掉,即该节点不再处理这些partition信息了
+1.首先停止抓去这些partition,因为都要删除了,没有必要在去抓去这些了
+2.循环每一个partition调用七方法进行删除
+
+九、
+
+
+--------------------------------------------------
+Partition
+kafka还可以配置partitions需要备份的个数(replicas),每个partition将会被备份到多台机器上,以提高可用性.
+每一个Partition是由topic决定的,即一个topic对应多个Partition,分别编号为partitionId
+一、属性
+1.private val localBrokerId = replicaManager.config.brokerId//本地节点ID
+2.private val logManager = replicaManager.logManager//本地的LogManager,用于将partition的一个备份写到本地节点上,这个备份可能是leader,也可能是follow
+3.private var controllerEpoch: Int = KafkaController.InitialControllerEpoch - 1
+  controller的枚举次数,当请求过来的时候,设置的该值,每次partition变成leader或者follow的时候都会更新该值。
+  @volatile private var leaderEpoch: Int = LeaderAndIsr.initialLeaderEpoch - 1 //leader选举的次数
+  private var zkVersion: Int = LeaderAndIsr.initialZKVersion
+4.partition的三大属性
+   @volatile var leaderReplicaIdOpt: Option[Int] = None//该partition对应的leader节点
+   @volatile var inSyncReplicas: Set[Replica] = Set.empty[Replica]//已经同步的备份集合,只有partition的leader节点需要知道该属性
+  private val assignedReplicaMap = new Pool[Int, Replica] 保存该partition的每一个备份在哪个节点上,以及该备份对象Replica的映射关系
+
+
+二、创建该partition与备份的映射关系
+1.def getOrCreateReplica(replicaId: Int = localBrokerId): Replica
+  有则获取,无则创建一个在replicaId节点上的备份对象
+a.如果备份节点不是本节点,则val remoteReplica = new Replica(replicaId, this, time)即可,添加映射
+b.如果备份节点就是本地节点,则创建或者获取对应的log文件
+c.读取replication-offset-checkpoint文件对象OffsetCheckpoint,读取该topic-partition存储的值
+  将该值与log.logEndOffset的进行比较,获取较小的值,创建备份对象
+  val localReplica = new Replica(replicaId, this, time, 最小值, Some(log))
+d.添加映射
+2.def getReplica(replicaId: Int = localBrokerId): Option[Replica] 仅仅是get获取,不会创建
+3.def leaderReplicaIfLocal(): Option[Replica]
+ 获取leader节点的备份对象,并且该备份节点还是得本地节点,否则返回null
+ 即只有本地是leader的时候,才会返回该备份对象
+4.对备份节点ID与备份对象的映射关系方法
+ def addReplicaIfNotExists(replica: Replica) 添加
+ def assignedReplicas(): Set[Replica]  获取全部的备份
+ def removeReplica(replicaId: Int) 删除一个映射
+三、def delete() 说明该partition在该本地节点不再存在了,则
+1.assignedReplicaMap.clear()清空各种映射
+2.删除本地的log文件 logManager.deleteLog(TopicAndPartition(topic, partitionId))
+四、def getLeaderEpoch(): Int
+返回leader选举的次数
+五、 makeLeader(controllerId: Int,//controller节点
+                   partitionStateInfo: PartitionStateInfo,//此时该partition的leader详细信息
+                   correlationId: Int,//请求关联的ID
+                   offsetManager: OffsetManager): Boolean = 说明该partition在本节点是leader存在
+说明该partition在该节点是leader了
+因为请求过来的是最新的该partition分配在哪些节点上备份,leader在哪个节点上,同步节点集合在哪些节点上,所以都要进行更新的
+1.删除全部的内存映射
+2.将该partition的所有备份集合分别创建备份对象Replica
+3.将该partition的所有同步集合分别创建备份对象Replica
+4.设置属性 最新的同步集合、leader节点(本地节点)、leader的选举次数
+5.newLeaderReplica.convertHWToLocalOffsetMetadata() 如果本地备份对象是leader的时候,调用备份Replica对象的convertHWToLocalOffsetMetadata方法
+6.
+ //因为本节点已经是该partiiton的leader节点了,因此本节点该partition的所有的follow都要重置偏移量
+      assignedReplicas.foreach(r => if (r.brokerId != localBrokerId) r.logEndOffset = LogOffsetMetadata.UnknownOffsetMetadata)
+      // we may need to increment high watermark since ISR could be down to 1
+      maybeIncrementLeaderHW(newLeaderReplica)
+      if (topic == OffsetManager.OffsetsTopicName) //kafka内部的topic,单独加载
+        offsetManager.loadOffsetsFromLog(partitionId)
+      true
+六、  def makeFollower(controllerId: Int,//controller节点ID
+                     partitionStateInfo: PartitionStateInfo,//此时poartition的leader详细信息
+                     correlationId: Int,//请求关联的ID
+                     offsetManager: OffsetManager): Boolean
+说明该partition在该节点是follower了,如果leader节点没有被更改,则返回false给replica manager
+1.更新controller的选举次数
+2.更新partition的leader枚举次数
+3.更新partition的同步节点集合是空集合,因为follow节点是不需要知道所有的同步节点有哪些的
+4.为该partition所有的备份节点创建一个备份对象集合,清空以前的备份集合映射,以最新的为准
+5.判断该parititon最新的leader节点是否与以前存储的相同,如果相同,说明leader没有变化,则返回false,leader有变化则返回true,并且更新leader
+
+一、replication-offset-checkpoint文件
+
+
+
+case class PartitionDataAndOffset(data: FetchResponsePartitionData, offset: LogOffsetMetadata)
+
+  private val replicaStateChangeLock = new Object
+
+  //从leader节点抓取数据,并且将数据抓取成功后添加到对应的log文件中
+  val replicaFetcherManager = new ReplicaFetcherManager(config, this)
+  private val highWatermarkCheckPointThreadStarted = new AtomicBoolean(false)
+
+  //在每一个log磁盘下,创建一个OffsetCheckpoint对象,文件名是replication-offset-checkpoint
+  //key是log磁盘根目录,value是replication-offset-checkpoint文件
+  val highWatermarkCheckpoints = config.logDirs.map(dir => (new File(dir).getAbsolutePath, new OffsetCheckpoint(new File(dir, ReplicaManager.HighWatermarkFilename)))).toMap
+
+  private var hwThreadInitialized = false
+
+  var producerRequestPurgatory: ProducerRequestPurgatory = null
+  var fetchRequestPurgatory: FetchRequestPurgatory = null
+
+  val isrExpandRate = newMeter("IsrExpandsPerSec",  "expands", TimeUnit.SECONDS) //扩展同步节点集合
+  val isrShrinkRate = newMeter("IsrShrinksPerSec",  "shrinks", TimeUnit.SECONDS) //缩小同步节点集合
+
+  def underReplicatedPartitionCount(): Int = {
+      getLeaderPartitions().count(_.isUnderReplicated)
+  }
+
+  //打开线程,定期保存每一个partition的记录
+  def startHighWaterMarksCheckPointThread() = {
+    if(highWatermarkCheckPointThreadStarted.compareAndSet(false, true))
+      scheduler.schedule("highwatermark-checkpoint", checkpointHighWatermarks, period = config.replicaHighWatermarkCheckpointIntervalMs, unit = TimeUnit.MILLISECONDS)
+  }
+
+  /**
+   * Initialize the replica manager with the request purgatory
+   *
+   * TODO: will be removed in 0.9 where we refactor server structure
+   */
+
+  def initWithRequestPurgatory(producerRequestPurgatory: ProducerRequestPurgatory, fetchRequestPurgatory: FetchRequestPurgatory) {
+    this.producerRequestPurgatory = producerRequestPurgatory
+    this.fetchRequestPurgatory = fetchRequestPurgatory
+  }
+
+  /**
+   * Unblock some delayed produce requests with the request key
+   */
+  def unblockDelayedProduceRequests(key: TopicAndPartition) {
+    val satisfied = producerRequestPurgatory.update(key)
+    debug("Request key %s unblocked %d producer requests."
+      .format(key, satisfied.size))
+
+    // send any newly unblocked responses
+    satisfied.foreach(producerRequestPurgatory.respond(_))
+  }
+
+  /**
+   * Unblock some delayed fetch requests with the request key
+   */
+  def unblockDelayedFetchRequests(key: TopicAndPartition) {
+    val satisfied = fetchRequestPurgatory.update(key)
+    debug("Request key %s unblocked %d fetch requests.".format(key, satisfied.size))
+
+    // send any newly unblocked responses
+    satisfied.foreach(fetchRequestPurgatory.respond(_))
+  }
+
+  def startup() {
+    // start ISR expiration thread
+    scheduler.schedule("isr-expiration", maybeShrinkIsr, period = config.replicaLagTimeMaxMs, unit = TimeUnit.MILLISECONDS)
+  }
+
+
+
+  /**
+   * Read from all the offset details given and return a map of
+   * (topic, partition) -> PartitionData
+   * 输入参数中读取Map fetchRequest.requestInfo.map,内容是key表示抓取哪个topic-partition数据,value表示从offset开始抓取,抓取多少个数据返回
+   * 输出Map的key是抓取哪个topic-partition数据,value是该partition抓去到的数据信息
+   */
+  def readMessageSets(fetchRequest: FetchRequest) = {
+    val isFetchFromFollower = fetchRequest.isFromFollower//true表示该请求来自于follower节点
+    //fetchRequest.requestInfo发送本次抓取请求,是抓取那些topic-partition,从第几个序号开始抓取,最多抓取多少个字节
+    fetchRequest.requestInfo.map{
+      case (TopicAndPartition(topic, partition), PartitionFetchInfo(offset, fetchSize)) =>//抓去哪个topic-partition上从什么offset开始抓去.抓去多少条数据
+      val partitionDataAndOffsetInfo =
+          try {
+            //真正去读取本地文件,返回抓去的数据
+            val (fetchInfo, highWatermark) = readMessageSet(topic, partition, offset, fetchSize, fetchRequest.replicaId)//fetchRequest.replicaId哪个follower节点发过来的抓去请求
+            //写入统计信息
+            BrokerTopicStats.getBrokerTopicStats(topic).bytesOutRate.mark(fetchInfo.messageSet.sizeInBytes)
+            BrokerTopicStats.getBrokerAllTopicsStats.bytesOutRate.mark(fetchInfo.messageSet.sizeInBytes)
+            if (isFetchFromFollower) {//如果来自与follower节点
+              debug("Partition [%s,%d] received fetch request from follower %d"
+                .format(topic, partition, fetchRequest.replicaId))//打印日志topic-partition收到了来自哪个follower节点的抓去请求,并且已经在本地文件获取到了文件内容
+            }
+            new PartitionDataAndOffset(new FetchResponsePartitionData(ErrorMapping.NoError, highWatermark, fetchInfo.messageSet), fetchInfo.fetchOffset)
+          } catch {
+            // NOTE: Failed fetch requests is not incremented for UnknownTopicOrPartitionException and NotLeaderForPartitionException
+            // since failed fetch requests metric is supposed to indicate failure of a broker in handling a fetch request
+            // for a partition it is the leader for
+            case utpe: UnknownTopicOrPartitionException =>
+              warn("Fetch request with correlation id %d from client %s on partition [%s,%d] failed due to %s".format(
+                fetchRequest.correlationId, fetchRequest.clientId, topic, partition, utpe.getMessage))
+              new PartitionDataAndOffset(new FetchResponsePartitionData(ErrorMapping.codeFor(utpe.getClass.asInstanceOf[Class[Throwable]]), -1L, MessageSet.Empty), LogOffsetMetadata.UnknownOffsetMetadata)
+            case nle: NotLeaderForPartitionException =>
+              warn("Fetch request with correlation id %d from client %s on partition [%s,%d] failed due to %s".format(
+                fetchRequest.correlationId, fetchRequest.clientId, topic, partition, nle.getMessage))
+              new PartitionDataAndOffset(new FetchResponsePartitionData(ErrorMapping.codeFor(nle.getClass.asInstanceOf[Class[Throwable]]), -1L, MessageSet.Empty), LogOffsetMetadata.UnknownOffsetMetadata)
+            case t: Throwable =>
+              BrokerTopicStats.getBrokerTopicStats(topic).failedFetchRequestRate.mark()
+              BrokerTopicStats.getBrokerAllTopicsStats.failedFetchRequestRate.mark()
+              error("Error when processing fetch request for partition [%s,%d] offset %d from %s with correlation id %d. Possible cause: %s"
+                .format(topic, partition, offset, if (isFetchFromFollower) "follower" else "consumer", fetchRequest.correlationId, t.getMessage))
+              new PartitionDataAndOffset(new FetchResponsePartitionData(ErrorMapping.codeFor(t.getClass.asInstanceOf[Class[Throwable]]), -1L, MessageSet.Empty), LogOffsetMetadata.UnknownOffsetMetadata)
+          }
+        (TopicAndPartition(topic, partition), partitionDataAndOffsetInfo)
+    }
+  }
+
+  /**
+   * Read from a single topic/partition at the given offset upto maxSize bytes
+   * 从单独一个topic/partition本地文件的leader中读取数据,从给定offset开始读取,最多读取maxSize个
+   * @fromReplicaId 表示该请求是哪个follower节点发过来的
+   *
+   * 返回FetchDataInfo, Long
+   *
+   */
+  private def readMessageSet(topic: String,//去读取该topic-partition数据
+                             partition: Int,
+                             offset: Long,//从offset位置开始读取
+                             maxSize: Int,//最多读取多少个字节
+                             fromReplicaId: Int) //请求来源于哪个follow节点
+                            : (FetchDataInfo, Long) = {
+    // check if the current broker is the leader for the partitions
+    //获取该topic-partition对应的本地文件
+    val localReplica = if(fromReplicaId == Request.DebuggingConsumerId)
+      getReplicaOrException(topic, partition)
+    else
+      getLeaderReplicaIfLocal(topic, partition)
+    trace("Fetching log segment for topic, partition, offset, size = " + (topic, partition, offset, maxSize)) //打印日志,开始抓去信息
+    val maxOffsetOpt =
+      if (Request.isValidBrokerId(fromReplicaId))//说明是follow节点,则不设置最大偏移量
+        None
+      else
+        Some(localReplica.highWatermark.messageOffset)
+    val fetchInfo = localReplica.log match {//真正去读取文件记录,然后返回
+      case Some(log) =>
+        log.read(offset, maxSize, maxOffsetOpt)
+      case None =>
+        error("Leader for partition [%s,%d] does not have a local log".format(topic, partition))
+        FetchDataInfo(LogOffsetMetadata.UnknownOffsetMetadata, MessageSet.Empty)
+    }
+    (fetchInfo, localReplica.highWatermark.messageOffset)
+  }
+  //处理更新元数据请求
+  def maybeUpdateMetadataCache(updateMetadataRequest: UpdateMetadataRequest, metadataCache: MetadataCache) {
+    replicaStateChangeLock synchronized {
+      if(updateMetadataRequest.controllerEpoch < controllerEpoch) {//校验controller选举次数异常
+        val stateControllerEpochErrorMessage = ("Broker %d received update metadata request with correlation id %d from an " +
+          "old controller %d with epoch %d. Latest known controller epoch is %d").format(localBrokerId,
+          updateMetadataRequest.correlationId, updateMetadataRequest.controllerId, updateMetadataRequest.controllerEpoch,
+          controllerEpoch)
+        stateChangeLogger.warn(stateControllerEpochErrorMessage)
+        throw new ControllerMovedException(stateControllerEpochErrorMessage)
+      } else {
+        metadataCache.updateCache(updateMetadataRequest, localBrokerId, stateChangeLogger)
+        controllerEpoch = updateMetadataRequest.controllerEpoch
+      }
+    }
+  }
+   /**
+   * 评估卡住的同步对象集合
+   * 所谓卡住的原因是:1.长时间没有从leader收到同步信息 2.收到的leader的同步信息数据较少
+   * @config.replicaLagTimeMaxMs 表示最长时间不能从leader接收信息阀值
+   * @config.replicaLagMaxMessages 表示从leader节点同步数据的最大字节长度阀值
+   *
+   * 该方法表示收缩同步集合,因为有一些同步节点有问题,导致不再向该集合发送同步数据
+   */
+  private def maybeShrinkIsr(): Unit = {
+    trace("Evaluating ISR list of partitions to see which replicas can be removed from the ISR")
+    allPartitions.values.foreach(partition => partition.maybeShrinkIsr(config.replicaLagTimeMaxMs, config.replicaLagMaxMessages))
+  }
+
+  //follow节点抓取partition的Replica数据后.更新文件偏移量信息LogOffsetMetadata
+  //抓取的是topic-parition在replicaId节点上更新的数据量
+  //记录该follower节点replicaId,已经同步给他了每一个topic-partition到哪个offset了
+  /**
+   * follow节点replicaId 已经抓去topic-partition到什么位置了LogOffsetMetadata
+   * @param topic
+   * @param partitionId
+   * @param replicaId
+   * @param offset
+   */
+  def updateReplicaLEOAndPartitionHW(topic: String, partitionId: Int, replicaId: Int, offset: LogOffsetMetadata) = {
+    getPartition(topic, partitionId) match {
+      case Some(partition) =>
+        partition.getReplica(replicaId) match {
+          case Some(replica) =>
+            replica.logEndOffset = offset
+            // check if we need to update HW and expand Isr 更新leader的信息以及可能扩展该备份节点到同步节点集合中
+            partition.updateLeaderHWAndMaybeExpandIsr(replicaId)
+            debug("Recorded follower %d position %d for partition [%s,%d].".format(replicaId, offset.messageOffset, topic, partitionId))
+          case None =>
+            throw new NotAssignedReplicaException(("Leader %d failed to record follower %d's position %d since the replica" +
+              " is not recognized to be one of the assigned replicas %s for partition [%s,%d]").format(localBrokerId, replicaId,
+              offset.messageOffset, partition.assignedReplicas().map(_.brokerId).mkString(","), topic, partitionId))
+
+        }
+      case None =>
+        warn("While recording the follower position, the partition [%s,%d] hasn't been created, skip updating leader HW".format(topic, partitionId))
+    }
+  }
+
+  //在本节点的所有topic-partition中获取所有是leader的partition集合
+  private def getLeaderPartitions() : List[Partition] = {
+    allPartitions.values.filter(_.leaderReplicaIfLocal().isDefined).toList//过滤leader节点必须是本地的集合
+  }
+  /**
+   * Flushes the highwatermark value for all partitions to the highwatermark file
+   * 向replication-offset-checkpoint文件写入每一个topic-paritition对应的处理过的文件偏移量
+   */
+  def checkpointHighWatermarks() {
+    //返回本地节点的所有replica备份对象
+    val replicas = allPartitions.values.map(_.getReplica(config.brokerId)).collect{case Some(replica) => replica}
+    // Map[String, Iterable[Replica]] 按照log的根目录分组,key是log根目录,value是该目录下的所有Replica对象
+    val replicasByDir = replicas.filter(_.log.isDefined).groupBy(_.log.get.dir.getParentFile.getAbsolutePath)
+    for((dir, reps) <- replicasByDir) {
+      //Map[TopicAndPartition, Long] key是TopicAndPartition对象,value是该partiton的messageOffset
+      val hwms = reps.map(r => (new TopicAndPartition(r) -> r.highWatermark.messageOffset)).toMap
+      try {
+        //向replication-offset-checkpoint文件写入key是TopicAndPartition对象,value是该partiton的messageOffset信息
+        highWatermarkCheckpoints(dir).write(hwms)
+      } catch {
+        case e: IOException =>
+          fatal("Error writing to highwatermark file: ", e)
+          Runtime.getRuntime().halt(1)
+      }
+    }
+  }
+
+
+  ----------------------------------------
+
+
+class Partition(val topic: String,
+                val partitionId: Int,
+                time: Time,
+                replicaManager: ReplicaManager) extends Logging with KafkaMetricsGroup {
+
+  /**
+   * 判断当前partition是否没有同步完
+   * true表示该partition的所有配分文件没有全部同步完成
+   * 1.寻找该partition的leader
+   * 2.该leader中所有分配的备份对象全部同步完成
+   */
+  def isUnderReplicated(): Boolean = {
+    leaderReplicaIfLocal() match {
+      case Some(_) => inSyncReplicas.size < assignedReplicas.size
+      case None => false
+    }
+  }
+
+
+
+  //对leader节点进行更新,并且扩展同步节点集合
+  def updateLeaderHWAndMaybeExpandIsr(replicaId: Int) {
+    inWriteLock(leaderIsrUpdateLock) {
+      // check if this replica needs to be added to the ISR
+      //获取leader节点,并且本地是leader节点
+      leaderReplicaIfLocal() match {
+        case Some(leaderReplica) =>
+          //获取leader节点成功
+          val replica = getReplica(replicaId).get //返回一个备份节点对应的Replica对象
+          val leaderHW = leaderReplica.highWatermark //返回Leader对应的LogOffsetMetadata对象
+          // For a replica to get added back to ISR, it has to satisfy 3 conditions-
+          //要满足三个条件,就将该备份加入到同步节点集合中,即当前不再同步节点集合、该节点在备份节点集合中、当前节点的位置已经达到了leader节点的位置了,则说明可以做为同步节点了
+          // 1. It is not already in the ISR ,节点不在ISR同步节点里面存在
+          // 2. It is part of the assigned replica list. See KAFKA-1097 该partition备份节点中包含replicaId节点,即replicaId节点确定有partition备份
+          // 3. It's log end offset >= leader's high watermark 该partition的位置>=leader的位置
+          if (!inSyncReplicas.contains(replica) &&
+            assignedReplicas.map(_.brokerId).contains(replicaId) &&
+            replica.logEndOffset.offsetDiff(leaderHW) >= 0) {
+            // expand ISR 进行同步备份节点集合
+            val newInSyncReplicas = inSyncReplicas + replica
+            info("Expanding ISR for partition [%s,%d] from %s to %s"
+                 .format(topic, partitionId, inSyncReplicas.map(_.brokerId).mkString(","), newInSyncReplicas.map(_.brokerId).mkString(",")))
+            // update ISR in ZK and cache 仅仅扩展同步节点集合
+            updateIsr(newInSyncReplicas)
+            replicaManager.isrExpandRate.mark()
+          }
+          maybeIncrementLeaderHW(leaderReplica)
+        case None => // nothing to do if no longer leader 如果不是leader节点,则什么也不做
+      }
+    }
+  }
+
+  /**
+   * @requiredOffset 表示要求每一个备份文件必须要大于该阀值才作为可用备份
+   * @requiredAcks 要求有这些数量的合法的备份数才是true
+   *
+   * 因为leader节点会记录每一个同步节点同步到哪个位置了
+   */
+  def checkEnoughReplicasReachOffset(requiredOffset: Long, requiredAcks: Int): (Boolean, Short) = {
+    leaderReplicaIfLocal() match {
+      case Some(leaderReplica) =>
+        // keep the current immutable replica list reference 保持当前的同步节点集合
+        val curInSyncReplicas = inSyncReplicas
+
+        //计算所有备份数据中大于给定参数requiredOffset偏移量的备份数据集合数量
+        val numAcks = curInSyncReplicas.count(r => {
+          if (!r.isLocal)
+            r.logEndOffset.messageOffset >= requiredOffset
+          else
+            true /* also count the local (leader) replica */
+        })
+
+        //表示partition的最小同步数量,即达到该数量的备份数,就可以认为是成功备份了
+        val minIsr = leaderReplica.log.get.config.minInSyncReplicas
+
+        trace("%d/%d acks satisfied for %s-%d".format(numAcks, requiredAcks, topic, partitionId))
+        //requiredAcks < 0 说明没有设置要多少个备份数
+        if (requiredAcks < 0 && leaderReplica.highWatermark.messageOffset >= requiredOffset ) {
+          /*
+          * requiredAcks < 0 means acknowledge after all replicas in ISR
+          * are fully caught up to the (local) leader's offset
+          * corresponding to this produce request.
+          *
+          * minIsr means that the topic is configured not to accept messages
+          * if there are not enough replicas in ISR
+          * in this scenario the request was already appended locally and
+          * then added to the purgatory before the ISR was shrunk
+          */
+          if (minIsr <= curInSyncReplicas.size) {//符合的备份数据大于最小备份阀值,因此返回正常
+            (true, ErrorMapping.NoError)
+          } else {
+            (true, ErrorMapping.NotEnoughReplicasAfterAppendCode) //说明没有足够多的partition备份节点去备份数据
+          }
+        } else if (requiredAcks > 0 && numAcks >= requiredAcks) {//有足够的备份数量,因为这部分说明已经设置了需要多少个备份
+          (true, ErrorMapping.NoError)
+        } else
+          (false, ErrorMapping.NoError)
+      case None =>
+        (false, ErrorMapping.NotLeaderForPartitionCode)
+    }
+  }
+
+  /**
+   * There is no need to acquire the leaderIsrUpdate lock here since all callers of this private API acquire that lock
+   * @param leaderReplica leader节点的Replica对象
+   */
+  private def maybeIncrementLeaderHW(leaderReplica: Replica) {
+    val allLogEndOffsets = inSyncReplicas.map(_.logEndOffset) //获取每一个follow对象的位置
+    val newHighWatermark = allLogEndOffsets.min(new LogOffsetMetadata.OffsetOrdering) //获取最小值
+    val oldHighWatermark = leaderReplica.highWatermark
+    if(oldHighWatermark.precedes(newHighWatermark)) {//true:当前的 比 参数小,即older比新的要小
+      leaderReplica.highWatermark = newHighWatermark
+      debug("High watermark for partition [%s,%d] updated to %s".format(topic, partitionId, newHighWatermark))
+      // some delayed requests may be unblocked after HW changed
+      val requestKey = new TopicAndPartition(this.topic, this.partitionId)
+      replicaManager.unblockDelayedFetchRequests(requestKey)
+      replicaManager.unblockDelayedProduceRequests(requestKey)
+    } else {
+      debug("Skipping update high watermark since Old hw %s is larger than new hw %s for partition [%s,%d]. All leo's are %s"
+        .format(oldHighWatermark, newHighWatermark, topic, partitionId, allLogEndOffsets.mkString(",")))
+    }
+  }
+
+  /**
+   * 返回卡住的同步对象集合
+   * 所谓卡住的原因是:1.长时间没有从leader收到同步信息 2.收到的leader的同步信息数据较少
+   * @replicaMaxLagTimeMs 表示最长时间不能从leader接收信息阀值
+   * @replicaMaxLagMessages 表示从leader节点同步数据的最大字节长度阀值
+   *
+   * 该方法表示收缩同步集合,因为有一些同步节点有问题,导致不再向该集合发送同步数据
+   *  注意；只有leader节点才能去查看哪些同步节点没有成功
+   *
+   *  该类表示收缩同步节点集合,Shrink表示收缩的意思
+   */
+  def maybeShrinkIsr(replicaMaxLagTimeMs: Long,  replicaMaxLagMessages: Long) {
+    inWriteLock(leaderIsrUpdateLock) {
+      leaderReplicaIfLocal() match {
+        case Some(leaderReplica) =>
+          // 注意；只有leader节点才能去查看哪些同步节点没有成功
+          val outOfSyncReplicas = getOutOfSyncReplicas(leaderReplica, replicaMaxLagTimeMs, replicaMaxLagMessages) //获取有卡住的备份集合
+          if(outOfSyncReplicas.size > 0) {//说明有同步节点没跟上进度
+            val newInSyncReplicas = inSyncReplicas -- outOfSyncReplicas //刨除有问题的备份集合,剩余可用的集合
+            assert(newInSyncReplicas.size > 0)
+            //打印日志,要收缩该topic-partition的同步集合,原来同步集合是什么,现在同步集合是什么
+            info("Shrinking ISR for partition [%s,%d] from %s to %s".format(topic, partitionId,
+              inSyncReplicas.map(_.brokerId).mkString(","), newInSyncReplicas.map(_.brokerId).mkString(",")))
+            // update ISR in zk and in cache 向zookeeper更新新的同步集合
+            updateIsr(newInSyncReplicas)
+            // we may need to increment high watermark since ISR could be down to 1
+            maybeIncrementLeaderHW(leaderReplica)
+            replicaManager.isrShrinkRate.mark()
+          }
+        case None => // do nothing if no longer leader 不是leader,不做任何事情
+      }
+    }
+  }
+
+  /**
+   * 返回卡住的同步对象集合
+   * 所谓卡住的原因是:1.长时间没有从leader收到同步信息 2.收到的leader的同步信息数据较少
+   * @leaderReplica 表示leader的备份对象
+   * @keepInSyncTimeMs 表示最长时间不能从leader接收信息阀值
+   * @keepInSyncMessages 表示从leader节点同步数据的最大字节长度阀值
+   * 返回值是有问题的备份集合
+   *
+   * 注意；只有leader节点才能去查看哪些同步节点没有成功
+   */
+  def getOutOfSyncReplicas(leaderReplica: Replica, keepInSyncTimeMs: Long, keepInSyncMessages: Long): Set[Replica] = {
+    /**
+     * there are two cases that need to be handled here -
+     * 1. Stuck followers: If the leo of the replica hasn't been updated for keepInSyncTimeMs ms,
+     *                     the follower is stuck and should be removed from the ISR
+     *                     表示有一段时间内没有同步信息了
+     * 2. Slow followers: If the leo of the slowest follower is behind the leo of the leader by keepInSyncMessages, the
+     *                     follower is not catching up and should be removed from the ISR
+     *                     表示同步太慢
+     **/
+    val leaderLogEndOffset = leaderReplica.logEndOffset
+    val candidateReplicas = inSyncReplicas - leaderReplica //刨除leader的同步集合 Set[Replica]
+    // Case 1 above 查找不卡住的备份对象,即长时间没有同步信息
+    val stuckReplicas = candidateReplicas.filter(r => (time.milliseconds - r.logEndOffsetUpdateTimeMs) > keepInSyncTimeMs)
+    if(stuckReplicas.size > 0)
+      debug("Stuck replicas for partition [%s,%d] are %s".format(topic, partitionId, stuckReplicas.map(_.brokerId).mkString(",")))
+    // Case 2 above 已经落后leader的数据已经很久了
+    val slowReplicas = candidateReplicas.filter(r =>
+      r.logEndOffset.messageOffset >= 0 &&
+      leaderLogEndOffset.messageOffset - r.logEndOffset.messageOffset > keepInSyncMessages)
+    if(slowReplicas.size > 0)
+      debug("Slow replicas for partition [%s,%d] are %s".format(topic, partitionId, slowReplicas.map(_.brokerId).mkString(",")))
+    stuckReplicas ++ slowReplicas
+  }
+
+  //向本地的partition的leader中追加一条ByteBufferMessageSet信息
+  def appendMessagesToLeader(messages: ByteBufferMessageSet, requiredAcks: Int=0) = {
+    inReadLock(leaderIsrUpdateLock) {
+      val leaderReplicaOpt = leaderReplicaIfLocal()
+      leaderReplicaOpt match {//找到本地的leader的LOG对象
+        case Some(leaderReplica) =>
+          val log = leaderReplica.log.get //leader节点log信息
+          val minIsr = log.config.minInSyncReplicas //表示partition的最小同步数量,即达到该数量的备份数,就可以认为是成功备份了
+          val inSyncSize = inSyncReplicas.size //等待同步集合
+
+          // Avoid writing to leader if there are not enough insync replicas to make it safe
+          if (inSyncSize < minIsr && requiredAcks == -1) { //说明无论如何都没有办法满足最小同步备份数需求,则因此抛异常
+            throw new NotEnoughReplicasException("Number of insync replicas for partition [%s,%d] is [%d], below required minimum [%d]"
+              .format(topic,partitionId,minIsr,inSyncSize))
+          }
+          //追加信息到leader所在的日志文件中
+          val info = log.append(messages, assignOffsets = true)
+          // probably unblock some follower fetch requests since log end offset has been updated
+          replicaManager.unblockDelayedFetchRequests(new TopicAndPartition(this.topic, this.partitionId))
+          // we may need to increment high watermark since ISR could be down to 1
+          maybeIncrementLeaderHW(leaderReplica)
+          info
+        case None =>
+          throw new NotLeaderForPartitionException("Leader not local for partition [%s,%d] on broker %d"
+            .format(topic, partitionId, localBrokerId))
+      }
+    }
+  }
+
+  //对leader节点更新对应的同步节点集合
+  private def updateIsr(newIsr: Set[Replica]) {
+    //将新的ISR集合更新到zookeeper中
+    val newLeaderAndIsr = new LeaderAndIsr(localBrokerId, leaderEpoch, newIsr.map(r => r.brokerId).toList, zkVersion)
+    //更新/brokers/topics/${topic}/partitions/${partitionId}/state下的json内容信息
+    val (updateSucceeded,newVersion) = ReplicationUtils.updateLeaderAndIsr(zkClient, topic, partitionId,
+      newLeaderAndIsr, controllerEpoch, zkVersion)
+    if(updateSucceeded) {
+      inSyncReplicas = newIsr
+      zkVersion = newVersion
+      trace("ISR updated to [%s] and zkVersion updated to [%d]".format(newIsr.mkString(","), zkVersion))
+    } else {
+      info("Cached zkVersion [%d] not equal to that in zookeeper, skip updating ISR".format(zkVersion))
+    }
+  }
+
+}

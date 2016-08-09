@@ -50,7 +50,7 @@ class Replica(val brokerId: Int,//该partition在哪个节点上的备份
               initialHighWatermarkValue: Long = 0L,//该partition在本地的最高offset
               val log: Option[Log] = None) extends Logging {//该partition对应的本地log文件
   // the high watermark offset value, in non-leader replicas only its message offsets are kept
-  //一个高水印位置,在非leader备份中仅仅
+  //在非leader中表示该节点已经同步leader到哪个位置了
   @volatile private[this] var highWatermarkMetadata: LogOffsetMetadata = new LogOffsetMetadata(initialHighWatermarkValue)
   // the log end offset value, kept in all replicas;
   //日志最后的偏移量位置,保存在所有的备份数据中
