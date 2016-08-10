@@ -26,8 +26,15 @@
 
 
 
-未解之谜
-partition的getOrCreateReplica方法,为什么要与log.logEndOffset的进行比较,获取较小的值,创建备份对象
+已经解决的问题
+1.partition的getOrCreateReplica方法,为什么要与log.logEndOffset的进行比较,获取较小的值,创建备份对象
+可能日志很大,但是leader的同步节点集合最小的位置比该日志的内容要小,因此要设置该值为最小的值
 
+2.Replica里 这个字段什么含义,为什么在readMessageSet里面的时候,leader要返回给follower
+@volatile private[this] var highWatermarkMetadata: LogOffsetMetadata = new LogOffsetMetadata(initialHighWatermarkValue)
+答案:因为要告诉每一个客户端follower节点,当前leader已经同步到哪些位置了,即所有的同步集合都至少也拿到了该位置的数据了。该位置之前的数据都已经全部同步完成
+
+
+未解之谜
 因为topic的partition在哪些节点上,zookeeper上是有记录的
 因此在这些节点上才能找到对应的partition

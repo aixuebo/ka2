@@ -41,9 +41,15 @@ import com.yammer.metrics.core.Gauge
 
 //kafka还可以配置partitions需要备份的个数(replicas),每个partition将会被备份到多台机器上,以提高可用性.
 object ReplicaManager {
+  //该文件存储的值表示该partition所有的同步节点集合至少也同步到什么位置了
   val HighWatermarkFilename = "replication-offset-checkpoint"
 }
 
+/**
+ *
+ * @param data follower 节点抓到的partition的数据内容
+ * @param offset 从什么序号开始抓去的数据
+ */
 case class PartitionDataAndOffset(data: FetchResponsePartitionData, offset: LogOffsetMetadata)
 
 
@@ -65,6 +71,7 @@ class ReplicaManager(val config: KafkaConfig,
 
   //在每一个log磁盘下,创建一个OffsetCheckpoint对象,文件名是replication-offset-checkpoint
   //key是log磁盘根目录,value是replication-offset-checkpoint文件
+  //该文件存储的值表示该partition所有的同步节点集合至少也同步到什么位置了
   val highWatermarkCheckpoints = config.logDirs.map(dir => (new File(dir).getAbsolutePath, new OffsetCheckpoint(new File(dir, ReplicaManager.HighWatermarkFilename)))).toMap
 
   private var hwThreadInitialized = false //true表示已经打开了一个线程,定期向replication-offset-checkpoint文件写入数据
@@ -320,6 +327,7 @@ class ReplicaManager(val config: KafkaConfig,
                              fromReplicaId: Int) //请求来源于哪个follow节点
                             : (FetchDataInfo, Long) = {
     // check if the current broker is the leader for the partitions
+    //因为该方法是follower节点向leader节点调用的,因此该方法一定是在leader的节点上执行的,因此可以获取到leader节点对应的备份对象,即一定是存在本地log文件
     //获取该topic-partition对应的本地文件
     val localReplica = if(fromReplicaId == Request.DebuggingConsumerId)
       getReplicaOrException(topic, partition)
@@ -339,6 +347,7 @@ class ReplicaManager(val config: KafkaConfig,
         FetchDataInfo(LogOffsetMetadata.UnknownOffsetMetadata, MessageSet.Empty)
     }
     (fetchInfo, localReplica.highWatermark.messageOffset)
+    //返回值localReplica.highWatermark.messageOffset要告诉每一个客户端follower节点,当前leader已经同步到哪些位置了,即所有的同步集合都至少也拿到了该位置的数据了。该位置之前的数据都已经全部同步完成
   }
 
   //处理更新元数据请求
@@ -668,6 +677,7 @@ class ReplicaManager(val config: KafkaConfig,
   /**
    * Flushes the highwatermark value for all partitions to the highwatermark file
    * 向replication-offset-checkpoint文件写入每一个topic-paritition对应的处理过的文件偏移量
+   * 该文件存储的值表示该partition所有的同步节点集合至少也同步到什么位置了
    */
   def checkpointHighWatermarks() {
     //返回本地节点的所有replica备份对象

@@ -34,7 +34,7 @@ object ErrorMapping {
   val InvalidMessageCode : Short = 2
   val UnknownTopicOrPartitionCode : Short = 3 //没有topic-partition信息
   val InvalidFetchSizeCode  : Short = 4
-  val LeaderNotAvailableCode : Short = 5
+  val LeaderNotAvailableCode : Short = 5 //leader不可用
   val NotLeaderForPartitionCode : Short = 6 //partition没有leader
   val RequestTimedOutCode: Short = 7
   val BrokerNotAvailableCode: Short = 8

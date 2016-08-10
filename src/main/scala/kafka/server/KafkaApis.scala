@@ -63,14 +63,15 @@ class KafkaApis(val requestChannel: RequestChannel,
         case RequestKeys.ConsumerMetadataKey => handleConsumerMetadataRequest(request)//获取制定group所在的offset的topic所在partition的leader节点
         
         case RequestKeys.MetadataKey => handleTopicMetadataRequest(request)//获取TopicMetadata元数据信息
-        case RequestKeys.UpdateMetadataKey => handleUpdateMetadataRequest(request)//更新元数据
-        
+
+        //controller相关的请求
+        case RequestKeys.UpdateMetadataKey => handleUpdateMetadataRequest(request)//更新每一个partition的详细信息元数据
         case RequestKeys.LeaderAndIsrKey => handleLeaderAndIsrRequest(request)
         case RequestKeys.StopReplicaKey => handleStopReplicaRequest(request)
         case RequestKeys.ControlledShutdownKey => handleControlledShutdownRequest(request)
         
         case RequestKeys.OffsetsKey => handleOffsetRequest(request)//获取topic-partition当前的offset偏移量
-        case RequestKeys.OffsetCommitKey => handleOffsetCommitRequest(request) ////更新topic-partition的offset请求,版本号0的时候走一套老逻辑,版本号>0,则就当生产者请求处理,向特定topic存储该信息
+        case RequestKeys.OffsetCommitKey => handleOffsetCommitRequest(request) //更新topic-partition的offset请求,版本号0的时候走一套老逻辑,版本号>0,则就当生产者请求处理,向特定topic存储该信息
         
         case RequestKeys.FetchKey => handleFetchRequest(request)//key表示抓取哪个topic-partition数据,value表示从offset开始抓取,抓取多少个数据返回
         case RequestKeys.OffsetFetchKey => handleOffsetFetchRequest(request)//抓去每一个topic-partition对应的offset最新信息
@@ -215,6 +216,7 @@ class KafkaApis(val requestChannel: RequestChannel,
         (request.requestObj.asInstanceOf[ProducerRequest], None)
       }
 
+    //只有三个值,-1 0 1,因此超过范围的说明有问题,打印异常
     if (produceRequest.requiredAcks > 1 || produceRequest.requiredAcks < -1) {//校验回执是否设置正确
       warn(("Client %s from %s sent a produce request with request.required.acks of %d, which is now deprecated and will " +
             "be removed in next release. Valid values are -1, 0 or 1. Please consult Kafka documentation for supported " +
@@ -549,7 +551,7 @@ class KafkaApis(val requestChannel: RequestChannel,
    * 根据topic集合,返回该集合对应的元数据信息集合
    */
   private def getTopicMetadata(topics: Set[String]): Seq[TopicMetadata] = {
-    val topicResponses = metadataCache.getTopicMetadata(topics)
+    val topicResponses = metadataCache.getTopicMetadata(topics) //获取topic的元数据信息
     if (topics.size > 0 && topicResponses.size != topics.size) {//说明请求的topic和返回的topic数量不一致
       val nonExistentTopics = topics -- topicResponses.map(_.topic).toSet//找到差异在哪些topic上
       val responsesForNonExistentTopics = nonExistentTopics.map { topic =>
@@ -576,7 +578,7 @@ class KafkaApis(val requestChannel: RequestChannel,
           } catch {
             case e: TopicExistsException => // let it go, possibly another broker created this topic
           }
-          new TopicMetadata(topic, Seq.empty[PartitionMetadata], ErrorMapping.LeaderNotAvailableCode)
+          new TopicMetadata(topic, Seq.empty[PartitionMetadata], ErrorMapping.LeaderNotAvailableCode) //leader不可用
         } else {
           new TopicMetadata(topic, Seq.empty[PartitionMetadata], ErrorMapping.UnknownTopicOrPartitionCode)//报告缺失该topic信息
         }

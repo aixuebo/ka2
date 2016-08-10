@@ -102,11 +102,11 @@ class Partition(val topic: String,
           val log = logManager.createLog(TopicAndPartition(topic, partitionId), config)
           //key是log磁盘根目录,value是replication-offset-checkpoint文件
           //获取replication-offset-checkpoint文件对象OffsetCheckpoint
-          val checkpoint = replicaManager.highWatermarkCheckpoints(log.dir.getParentFile.getAbsolutePath)
+          val checkpoint = replicaManager.highWatermarkCheckpoints(log.dir.getParentFile.getAbsolutePath) //该值表示该partition所有的同步节点集合至少也同步到什么位置了
           val offsetMap = checkpoint.read //读取每一个topic-partition已经同步到偏移量
           if (!offsetMap.contains(TopicAndPartition(topic, partitionId)))
             warn("No checkpointed highwatermark is found for partition [%s,%d]".format(topic, partitionId))
-          val offset = offsetMap.getOrElse(TopicAndPartition(topic, partitionId), 0L).min(log.logEndOffset) //设置偏移量
+          val offset = offsetMap.getOrElse(TopicAndPartition(topic, partitionId), 0L).min(log.logEndOffset) //设置偏移量,找到已经同步的最小的位置
           val localReplica = new Replica(replicaId, this, time, offset, Some(log))
           addReplicaIfNotExists(localReplica)
         } else {

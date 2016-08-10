@@ -50,12 +50,20 @@ class Replica(val brokerId: Int,//该partition在哪个节点上的备份
               initialHighWatermarkValue: Long = 0L,//该partition在本地的最高offset
               val log: Option[Log] = None) extends Logging {//该partition对应的本地log文件
   // the high watermark offset value, in non-leader replicas only its message offsets are kept
-  //在非leader中表示该节点已经同步leader到哪个位置了
+  /**
+   * 如果该备份对象是leader节点对应的备份对象,则该值代表follower节点最小的同步已经同步到哪里了,例如该值是300,说明若干个follow节点,最小的也同步到300了
+   * 如果该备份对象是follow节点对应的备份对象,则该值代表已经同步leader到什么位置了
+   */
   @volatile private[this] var highWatermarkMetadata: LogOffsetMetadata = new LogOffsetMetadata(initialHighWatermarkValue)
   // the log end offset value, kept in all replicas;
   //日志最后的偏移量位置,保存在所有的备份数据中
   // for local replica it is the log's end offset, for remote replicas its value is only updated by follower fetch
   //对于本地的备份,该值表示日志的最后一个位置,对于远程的备份,该值表示抓取到了哪里,用于follower节点
+  /**
+   * 如果该备份对象是本地节点对应的有log的备份对象,则该值表示在本地log文件存储的最后一个数据位置
+   * 如果该备份对象是远程节点对应的备份对象,则该值代表在leader节点上记录了该follow节点最近一次抓数据的起始位置,即如果follow节点从300开始抓去数据,则该数据表示300
+   * 所有非leader节点的备份对象中,该值最小的一个,就是leader节点已经知道了所有同步对象中,最少也同步到哪个位置了,即highWatermarkMetadata在leader节点的值
+   */
   @volatile private[this] var logEndOffsetMetadata: LogOffsetMetadata = LogOffsetMetadata.UnknownOffsetMetadata
   // the time when log offset is updated,偏移量被更新的时间
   private[this] val logEndOffsetUpdateTimeMsValue = new AtomicLong(time.milliseconds)
