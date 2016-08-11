@@ -48,6 +48,7 @@ class FetchRequestPurgatory(replicaManager: ReplicaManager, requestChannel: Requ
 
   /**
    * Check if a specified delayed fetch request is satisfied
+   * 校验一个元素是否满足
    */
   def checkSatisfied(delayedFetch: DelayedFetch): Boolean = delayedFetch.isSatisfied(replicaManager)
 

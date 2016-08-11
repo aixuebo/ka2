@@ -37,7 +37,6 @@ import scala.collection.Seq
  *   - should return whatever data is available.
  *
  */
-
 class DelayedFetch(override val keys: Seq[TopicAndPartition],
                    override val request: RequestChannel.Request,
                    override val delayMs: Long,

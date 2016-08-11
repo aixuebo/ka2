@@ -50,13 +50,13 @@ class DelayedItem[T](val item: T, delay: Long, unit: TimeUnit) extends Delayed w
    
   //按照延迟后的最后时间排序
   def compareTo(d: Delayed): Int = {
-    val delayed = d.asInstanceOf[DelayedItem[T]]
-    val myEnd = createdMs + delayMs //延迟到最后的时间
-    val yourEnd = delayed.createdMs + delayed.delayMs
+    val delayed = d.asInstanceOf[DelayedItem[T]]//转换每个元素
+    val myEnd = createdMs + delayMs //我延迟到最后的时间
+    val yourEnd = delayed.createdMs + delayed.delayMs//参数延迟到最后的时间
 
-    if(myEnd < yourEnd) -1
-    else if(myEnd > yourEnd) 1
-    else 0
+    if(myEnd < yourEnd) -1 //我的时间小
+    else if(myEnd > yourEnd) 1//我的时间大
+    else 0//相同
   }
   
 }
