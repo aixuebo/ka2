@@ -51,7 +51,7 @@ class ProducerPool(val config: ProducerConfig) extends Logging {
 
   //该生产者创建连接这些topic-partation的leader节点的同步连接
   def updateProducer(topicMetadata: Seq[TopicMetadata]) {
-    val newBrokers = new collection.mutable.HashSet[Broker] //获取所有topic-partition的leader节点集合
+    val newBrokers = new collection.mutable.HashSet[Broker] //获取参数的所有topic-partition的leader节点集合
     topicMetadata.foreach(tmd => {
       tmd.partitionsMetadata.foreach(pmd => {
         if(pmd.leader.isDefined)

@@ -28,10 +28,12 @@ import kafka.client.ClientUtils
  * topicPartitionInfo: HashMap[String, TopicMetadata] 参数中key是topic字符串,value是该topic下所有partition的元数据信息
  * 
  * 该类缓存每一个topic的元数据信息
+ *
+ * 请求集群,获取每一个topic上对应的partition的详细分布信息
  */
 class BrokerPartitionInfo(producerConfig: ProducerConfig,
                           producerPool: ProducerPool,
-                          topicPartitionInfo: HashMap[String, TopicMetadata])
+                          topicPartitionInfo: HashMap[String, TopicMetadata])//存储每一个topic对应的整个集群上每一个partition的详细分布信息
         extends Logging {
   val brokerList = producerConfig.brokerList //节点集合
   val brokers = ClientUtils.parseBrokerList(brokerList) //返回 Seq[Broker]对象,即节点对象集合
@@ -43,6 +45,8 @@ class BrokerPartitionInfo(producerConfig: ProducerConfig,
    * sequence if no brokers are available.
    * 获取该topic对应的元数据集合信息
    * 并且元数据集合信息是PartitionAndLeader集合形式返回,并且按照partitionId排序了的集合
+   *
+   * 返回该topic下所有的partition集合,如果一个partition是leader,则PartitionAndLeader中leader属性有值
    */
   def getBrokerPartitionInfo(topic: String, correlationId: Int): Seq[PartitionAndLeader] = {
     debug("Getting broker partition info for topic %s".format(topic))
@@ -62,7 +66,7 @@ class BrokerPartitionInfo(producerConfig: ProducerConfig,
       }
     //获取该topic对应的PartitionMetadata集合
     val partitionMetadata = metadata.partitionsMetadata
-    if(partitionMetadata.size == 0) {
+    if(partitionMetadata.size == 0) {//说明该topic没有对应的partition,这个不应该存在这种可能,必须抛异常
       if(metadata.errorCode != ErrorMapping.NoError) {//出现异常则抛出
         throw new KafkaException(ErrorMapping.exceptionFor(metadata.errorCode))
       } else {//说明topic没有对应的partition元数据信息,但是却没有返回异常状态码
@@ -108,10 +112,11 @@ class BrokerPartitionInfo(producerConfig: ProducerConfig,
         } // any other error code (e.g. ReplicaNotAvailable) can be ignored since the producer does not need to access the replica and isr metadata
       })
     })
+    //创建与该topic的所有leader节点的请求连接
     producerPool.updateProducer(topicsMetadata)
   }
   
 }
 
-//描述每一个topic-partition对应的是否存在leader partition
+//描述每一个topic-partition以及该partition对应的leader节点,如果该节点为null,说明该partition目前没有leader节点
 case class PartitionAndLeader(topic: String, partitionId: Int, leaderBrokerIdOpt: Option[Int])

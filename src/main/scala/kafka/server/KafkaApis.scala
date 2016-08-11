@@ -59,10 +59,10 @@ class KafkaApis(val requestChannel: RequestChannel,
       //为远程客户端ip发过来的request请求,进行处理
       trace("Handling request: " + request.requestObj + " from client: " + request.remoteAddress)
       request.requestId match {
-        case RequestKeys.ProduceKey => handleProducerOrOffsetCommitRequest(request) //处理生产者发到该broker的请求
+        case RequestKeys.ProduceKey => handleProducerOrOffsetCommitRequest(request) //处理生产者的数据发到一个broker的请求,该broker是一个partition的leader所在节点
         case RequestKeys.ConsumerMetadataKey => handleConsumerMetadataRequest(request)//获取制定group所在的offset的topic所在partition的leader节点
         
-        case RequestKeys.MetadataKey => handleTopicMetadataRequest(request)//获取TopicMetadata元数据信息
+        case RequestKeys.MetadataKey => handleTopicMetadataRequest(request)//获取TopicMetadata元数据信息,即该topic的所有partition分别在哪些节点上,以及有多少个partition,以及每一个partition的leader节点、备份节点集合、同步节点集合是什么
 
         //controller相关的请求
         case RequestKeys.UpdateMetadataKey => handleUpdateMetadataRequest(request)//更新每一个partition的详细信息元数据

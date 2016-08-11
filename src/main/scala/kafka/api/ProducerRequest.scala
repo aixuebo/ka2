@@ -61,7 +61,7 @@ case class ProducerRequest(versionId: Short = ProducerRequest.CurrentVersion,//P
                            clientId: String,//表示哪个客户端传递过来的数据
                            requiredAcks: Short,//是否客户端要收到回执信息
                            ackTimeoutMs: Int,//客户端收到回执信息的超时时间
-                           data: collection.mutable.Map[TopicAndPartition, ByteBufferMessageSet])//要向哪些topic-partition发送message集合
+                           data: collection.mutable.Map[TopicAndPartition, ByteBufferMessageSet])//要向哪些topic-partition发送message集合,这些信息都发送给接收的节点上
     extends RequestOrResponse(Some(RequestKeys.ProduceKey)) {
 
   /**

@@ -38,3 +38,6 @@
 未解之谜
 因为topic的partition在哪些节点上,zookeeper上是有记录的
 因此在这些节点上才能找到对应的partition
+
+kafkaApi上getTopicMetadata是获取每一个topic的partition详细信息,但是不太知道controller是把所有的topic都同步到所有活着的节点上了么？
+我理解的是只是会同步该节点上已经存在的partiion啊
