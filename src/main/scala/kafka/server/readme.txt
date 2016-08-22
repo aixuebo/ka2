@@ -41,3 +41,6 @@
 
 kafkaApi上getTopicMetadata是获取每一个topic的partition详细信息,但是不太知道controller是把所有的topic都同步到所有活着的节点上了么？
 我理解的是只是会同步该节点上已经存在的partiion啊
+
+如果controller正在切换中,那么此时如果有请求的话,是等待还是返回已经缓存的结果呢？
+当partition的leader正在切换节点的时候.有请求该partition的信息的时候,应该是什么样的情况呢？

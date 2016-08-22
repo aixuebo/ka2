@@ -338,7 +338,8 @@ class ReplicaManager(val config: KafkaConfig,
       if (Request.isValidBrokerId(fromReplicaId))//说明是follow节点,则不设置最大偏移量
         None
       else
-        Some(localReplica.highWatermark.messageOffset)
+        Some(localReplica.highWatermark.messageOffset) //因为不是follow节点,因此只能把所有follow节点都同步到哪个位置了,作为最大的抓取偏移量位置
+
     val fetchInfo = localReplica.log match {//真正去读取文件记录,然后返回
       case Some(log) =>
         log.read(offset, maxSize, maxOffsetOpt)
@@ -398,6 +399,7 @@ class ReplicaManager(val config: KafkaConfig,
         controllerEpoch = leaderAndISRRequest.controllerEpoch //当前controller枚举次数
 
         // First check partition's leader epoch 更新每一个partition对应的leader的详细信息
+        //这里面存储的说明该节点应该有这些partition对象,并且controller和leader的枚举次数是合法的
         val partitionState = new HashMap[Partition, PartitionStateInfo]()
         leaderAndISRRequest.partitionStateInfos.foreach{ case ((topic, partitionId), partitionStateInfo) =>
           val partition = getOrCreatePartition(topic, partitionId)
@@ -645,6 +647,7 @@ class ReplicaManager(val config: KafkaConfig,
   //记录该follower节点replicaId,已经同步给他了每一个topic-partition到哪个offset了
   /**
    * follow节点replicaId 已经抓去topic-partition到什么位置了LogOffsetMetadata
+   * 只有leader节点才会调用该方法
    * @param topic
    * @param partitionId
    * @param replicaId

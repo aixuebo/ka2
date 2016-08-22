@@ -53,6 +53,14 @@ class Replica(val brokerId: Int,//该partition在哪个节点上的备份
   /**
    * 如果该备份对象是leader节点对应的备份对象,则该值代表follower节点最小的同步已经同步到哪里了,例如该值是300,说明若干个follow节点,最小的也同步到300了
    * 如果该备份对象是follow节点对应的备份对象,则该值代表已经同步leader到什么位置了
+   *
+  leader节点在partition的maybeIncrementLeaderHW方法里面调用,更新所有follower节点最小的值为水印值,
+  partition的四个操作都会更新该值:
+  a.appendMessagesToLeader追加信息
+  b.updateLeaderHWAndMaybeExpandIsr 每一次fetch请求发给leader的时候，leader都会知道follow节点请求的最小值是什么,因此更新该水印值
+  c.maybeShrinkIsr,定期查看partition的哪些备份节点是否过期的时候，因为有过期的follow,因此会更新该水印值。
+  d.makeLeader 当作为leader节点的时候,要重新计算该水印值。
+   * follower节点是fetch请求时候,leader节点传回follower节点的，详细查看ReplicaManager的readMesasgeSet方法,该传回来的数据就是leader节点自己知道的所有follow节点上最小的请求序号
    */
   @volatile private[this] var highWatermarkMetadata: LogOffsetMetadata = new LogOffsetMetadata(initialHighWatermarkValue)
   // the log end offset value, kept in all replicas;
