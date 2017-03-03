@@ -35,7 +35,7 @@ class ConsumerIterator[K, V](private val channel: BlockingQueue[FetchedDataChunk
                              consumerTimeoutMs: Int,//因为在一定时间内没有从队列中获取数据,超时了,所以要抛异常
                              private val keyDecoder: Decoder[K],//对数据中key进行重新编码
                              private val valueDecoder: Decoder[V],//对数据中value进行重新编码
-                             val clientId: String)
+                             val clientId: String) //客户端的唯一识别码,有时候也是groupId
   extends IteratorTemplate[MessageAndMetadata[K, V]] with Logging {
 
   private var current: AtomicReference[Iterator[MessageAndOffset]] = new AtomicReference(null)//就是MessageAndOffset的迭代器

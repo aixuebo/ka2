@@ -209,7 +209,8 @@ class ConsumerConfig private (val props: VerifiableProperties) extends ZKConfig(
 
   /**
    * Client id is specified by the kafka consumer client, used to distinguish different clients
-   * 指明是一个kafka的消费者客户端,被使用与区分不同的客户端
+   * 指明是一个kafka的消费者客户端,被使用与区分不同的客户端,
+   * 默认是groupid
    */
   val clientId = props.getString("client.id", groupId)
 
