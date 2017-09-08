@@ -67,15 +67,15 @@ object GetOffsetShell {
 
     val clientId = "GetOffsetShell"
     val brokerList = options.valueOf(brokerListOpt)
-    ToolsUtils.validatePortOrDie(parser, brokerList)
-    val metadataTargetBrokers = ClientUtils.parseBrokerList(brokerList)
-    val topic = options.valueOf(topicOpt)
+    ToolsUtils.validatePortOrDie(parser, brokerList) //校验参数hostPort是否都是正确合法的host:port形式字符串集合
+    val metadataTargetBrokers = ClientUtils.parseBrokerList(brokerList)//解析host1:port1, host2:port2为Broker集合
+    val topic = options.valueOf(topicOpt)//注意此时topic只能是一个,而不是集合
     var partitionList = options.valueOf(partitionOpt)
     var time = options.valueOf(timeOpt).longValue
     val nOffsets = options.valueOf(nOffsetsOpt).intValue
     val maxWaitMs = options.valueOf(maxWaitMsOpt).intValue()
 
-    val topicsMetadata = ClientUtils.fetchTopicMetadata(Set(topic), metadataTargetBrokers, clientId, maxWaitMs).topicsMetadata
+    val topicsMetadata = ClientUtils.fetchTopicMetadata(Set(topic), metadataTargetBrokers, clientId, maxWaitMs).topicsMetadata //发送请求,返回该topic的元数据
     if(topicsMetadata.size != 1 || !topicsMetadata(0).topic.equals(topic)) {
       System.err.println(("Error: no valid topic metadata for topic: %s, " + " probably the topic does not exist, run ").format(topic) +
         "kafka-list-topic.sh to verify")
@@ -83,17 +83,17 @@ object GetOffsetShell {
     }
     val partitions =
       if(partitionList == "") {
-        topicsMetadata.head.partitionsMetadata.map(_.partitionId)
+        topicsMetadata.head.partitionsMetadata.map(_.partitionId)//因为只有一个topic,因此获取topic元数据的head,然后获取所有该topic下的partition集合
       } else {
         partitionList.split(",").map(_.toInt).toSeq
       }
     partitions.foreach { partitionId =>
-      val partitionMetadataOpt = topicsMetadata.head.partitionsMetadata.find(_.partitionId == partitionId)
+      val partitionMetadataOpt = topicsMetadata.head.partitionsMetadata.find(_.partitionId == partitionId) //获取partition的元数据
       partitionMetadataOpt match {
         case Some(metadata) =>
           metadata.leader match {
             case Some(leader) =>
-              val consumer = new SimpleConsumer(leader.host, leader.port, 10000, 100000, clientId)
+              val consumer = new SimpleConsumer(leader.host, leader.port, 10000, 100000, clientId)//作这个partition的消费者
               val topicAndPartition = TopicAndPartition(topic, partitionId)
               val request = OffsetRequest(Map(topicAndPartition -> PartitionOffsetRequestInfo(time, nOffsets)))
               val offsets = consumer.getOffsetsBefore(request).partitionErrorAndOffsets(topicAndPartition).offsets

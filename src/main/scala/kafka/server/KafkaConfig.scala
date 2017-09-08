@@ -32,6 +32,7 @@ class KafkaConfig private (val props: VerifiableProperties) extends ZKConfig(pro
     props.verify()
   }
 
+  //先ms,再minutes,最后获取配置中hours
   private def getLogRetentionTimeMillis(): Long = {
     val millisInMinute = 60L * 1000L
     val millisInHour = 60L * millisInMinute
