@@ -34,8 +34,8 @@ import org.I0Itec.zkclient.exception.ZkNoNodeException
 object ConsumerOffsetChecker extends Logging {
 
   private val consumerMap: mutable.Map[Int, Option[SimpleConsumer]] = mutable.Map()
-  private val offsetMap: mutable.Map[TopicAndPartition, Long] = mutable.Map()
-  private var topicPidMap: immutable.Map[String, Seq[Int]] = immutable.Map()
+  private val offsetMap: mutable.Map[TopicAndPartition, Long] = mutable.Map()//每一个topic-partition最新的offset位置
+  private var topicPidMap: immutable.Map[String, Seq[Int]] = immutable.Map()//返回topic与partitionId对应的映射,即可以知道每一个topic有多少个partition
 
   //参数bid是brokerId,连接该broker,创建该broker的消费者
   private def getConsumer(zkClient: ZkClient, bid: Int): Option[SimpleConsumer] = {
@@ -158,16 +158,16 @@ object ConsumerOffsetChecker extends Logging {
         case None => ZkUtils.getChildren(zkClient, groupDirs.consumerGroupDir +  "/owners").toList ///consumers/${group}/owners下面所有的子节点集合
       }
 
-      topicPidMap = immutable.Map(ZkUtils.getPartitionsForTopics(zkClient, topicList).toSeq:_*)
-      val topicPartitions = topicPidMap.flatMap { case(topic, partitionSeq) => partitionSeq.map(TopicAndPartition(topic, _)) }.toSeq
+      topicPidMap = immutable.Map(ZkUtils.getPartitionsForTopics(zkClient, topicList).toSeq:_*)//返回topic与partitionId对应的映射,即可以知道每一个topic有多少个partition
+      val topicPartitions = topicPidMap.flatMap { case(topic, partitionSeq) => partitionSeq.map(TopicAndPartition(topic, _)) }.toSeq//循环每一个topic-partition集合
       val channel = ClientUtils.channelToOffsetManager(group, zkClient, channelSocketTimeoutMs, channelRetryBackoffMs)
 
       debug("Sending offset fetch request to coordinator %s:%d.".format(channel.host, channel.port))
-      channel.send(OffsetFetchRequest(group, topicPartitions))
-      val offsetFetchResponse = OffsetFetchResponse.readFrom(channel.receive().buffer)
+      channel.send(OffsetFetchRequest(group, topicPartitions))//抓去该group每一个topic-partition对应的offset最新信息
+      val offsetFetchResponse = OffsetFetchResponse.readFrom(channel.receive().buffer)//解析返回值
       debug("Received offset fetch response %s.".format(offsetFetchResponse))
 
-      offsetFetchResponse.requestInfo.foreach { case (topicAndPartition, offsetAndMetadata) =>
+      offsetFetchResponse.requestInfo.foreach { case (topicAndPartition, offsetAndMetadata) => //循环每一个topic-partition对应的offset的返回值
         if (offsetAndMetadata == OffsetMetadataAndError.NoOffset) {
           val topicDirs = new ZKGroupTopicDirs(group, topicAndPartition.topic)
           // this group may not have migrated off zookeeper for offsets storage (we don't expose the dual-commit option in this tool
@@ -183,7 +183,7 @@ object ConsumerOffsetChecker extends Logging {
                 throw z
           }
         }
-        else if (offsetAndMetadata.error == ErrorMapping.NoError)
+        else if (offsetAndMetadata.error == ErrorMapping.NoError) //没有异常
           offsetMap.put(topicAndPartition, offsetAndMetadata.offset)
         else {
           println("Could not fetch offset for %s due to %s.".format(topicAndPartition, ErrorMapping.exceptionFor(offsetAndMetadata.error)))

@@ -65,7 +65,7 @@ class ConsumerFetcherThread(name: String,//线程名字
     config.autoOffsetReset match {//消费者从topic的什么位置开始消费,从头还是消费最新的,默认是消费最新的
       case OffsetRequest.SmallestTimeString => startTimestamp = OffsetRequest.EarliestTime
       case OffsetRequest.LargestTimeString => startTimestamp = OffsetRequest.LatestTime
-      case _ => startTimestamp = OffsetRequest.LatestTime
+      case _ => startTimestamp = OffsetRequest.LatestTime //默认是消费最新的位置
     }
     //查找最新的序号
     val newOffset = simpleConsumer.earliestOrLatestOffset(topicAndPartition, startTimestamp, Request.OrdinaryConsumerId)
